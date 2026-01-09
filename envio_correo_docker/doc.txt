@@ -1,0 +1,11 @@
+# Construir imagen
+docker build -t correo-docker .
+
+# Ejecutar contenedor efímero con .env
+docker run --rm \
+  -e EMISOR_CORREO="tu_correo@gmail.com" \
+  -e PASS_CORREO="TU_APP_PASSWORD" \
+  -e RECEPTOR_CORREO="juan@gmail.com,ana@gmail.com" \
+  -e ASUNTO="UPS ALERTA" \
+  -e TEXTO="UPS ha cambiado de estado" \
+  correo-docker
