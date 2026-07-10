@@ -2,6 +2,12 @@
 
 Librería raíz de utilidades Python reutilizables, pensada para copiarse archivo a archivo en distintos proyectos personales.
 
+> **¿Overview rápido o tutorial profundo?**
+> - Estás en el **README** (overview, tabla, 8 pasos para empezar, API resumida, schema, changelog)
+> - Para tutorial detallado por utilidad (instalación, API completa, ejemplos reales, errores comunes), mira **[TUTORIAL.md](TUTORIAL.md)**
+>
+> `check_updates.py` para mantenimiento entre proyectos → también cubierto en TUTORIAL.md
+
 ## Qué hay aquí
 
 | Archivo | Versión | Para qué sirve | Cuándo copiarlo |
@@ -332,6 +338,8 @@ SemVer simple:
 - `error_system.py` v1.0.0 — sistema unificado: `validar_error`, `nuevo_error`, `fdatos_keys_errores`, `registrar_errores`, `envio_control`
 - `time_utils.py` v1.0.0 — `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida`
 - `check_updates.py` v1.0.0 — comparador origen/destino con self-check y CLI
+- `README.md` — overview, tabla, 8 pasos, API resumida, schema, changelog
+- `TUTORIAL.md` — guía detallada por utilidad: instalación, API completa, ejemplos reales, errores comunes
 
 ## Lo que NO hace este repo
 
