@@ -279,8 +279,4 @@ w.append({"ultima_jornada": ultima + 1})
 }
 ```
 
-## Ver también
-
-- `../../README.md` — overview, tabla de utilidades, 8 pasos para empezar
-- `../../TUTORIAL.md` — guía detallada por utilidad con ejemplos largos y errores comunes
-- `../../AGENTS.md` — flujo de trabajo y reglas del repo
+Esta guía es autocontenida: asume que solo tienes acceso a esta carpeta (`utils/`) y a los `.py` que lista el catálogo. Si necesitas información que no esté aquí, busca dentro de los propios archivos `.py` (cabecera con `# __version__` y docstring de API al inicio de cada uno).
