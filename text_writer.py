@@ -1,6 +1,6 @@
 # utilidades-python:text_writer
 # Descripción: Escritura/append simple de ficheros de texto plano
-# __version__ = "1.0.0"
+# __version__ = "1.0.1"
 #
 # Clase principal: TextFileWriter (estado: guarda filename)
 #
@@ -27,11 +27,15 @@ class TextFileWriter:
     def write_data(self, data: str, mode: str = 'w') -> None:
         if self.filename is None:
             return
+        needs_leading_newline = (
+            mode == 'a'
+            and self._file_exists()
+            and os.path.getsize(self.filename) > 0
+        )
         with open(self.filename, mode=mode) as text_file:
-            if mode == 'a' and self._file_exists():
-                text_file.write('\n' + data)
-            else:
-                text_file.write(data)
+            if needs_leading_newline:
+                text_file.write('\n')
+            text_file.write(data)
 
     def add_line(self, line: str) -> None:
         self.write_data(line, mode='a')
@@ -61,7 +65,13 @@ if __name__ == "__main__":
         content = writer.read_all()
         assert content == "primera línea\nsegunda línea\ntercera línea", f"contenido inesperado: {content!r}"
 
+        # verifica que el primer add_line sobre archivo nuevo no añade \n espurio
+        path2 = os.path.join(tmp, "fresh.txt")
+        w2 = TextFileWriter(path2)
+        w2.add_line("primera y única")
+        assert w2.read_all() == "primera y única", f"fresh: {w2.read_all()!r}"
+
         writer.clear_file()
         assert writer.read_all() == ""
 
-    print("text_writer v1.0.0 OK")
+    print("text_writer v1.0.1 OK")
