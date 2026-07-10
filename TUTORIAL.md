@@ -9,6 +9,7 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 - [json_writer.py](#json_writerpy)
 - [error_system.py](#error_systempy)
 - [time_utils.py](#time_utilspy)
+- [enviar_correo.py](#enviar_correopy)
 - [check_updates.py](#check_updatespy)
 
 ---
@@ -26,7 +27,7 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 Copia el archivo a `utils/` de tu proyecto:
 
 ```bash
-cp /workspace/utilidades_python/csv_writer.py mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/csv_writer.py mi_proyecto/utils/
 ```
 
 No tiene dependencias externas. Solo stdlib (`csv`, `os`).
@@ -134,7 +135,7 @@ for fila in filas:
 ### Instalación
 
 ```bash
-cp /workspace/utilidades_python/text_writer.py mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/text_writer.py mi_proyecto/utils/
 ```
 
 ### API mínima
@@ -216,7 +217,7 @@ Resultado en `/logs/cron_2026-07-10.log`:
 ### Instalación
 
 ```bash
-cp /workspace/utilidades_python/json_writer.py mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/json_writer.py mi_proyecto/utils/
 ```
 
 ### API mínima
@@ -313,7 +314,7 @@ w.append([{"ts": "2026-07-10", "evt": "y"}])
 ### Instalación
 
 ```bash
-cp /workspace/utilidades_python/error_system.py mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/error_system.py mi_proyecto/utils/
 ```
 
 Requiere también `json_writer.py` y `text_writer.py` (los importa).
@@ -494,7 +495,7 @@ if "stop" in fdatos_keys_errores(errores, "tipo"):
 ### Instalación
 
 ```bash
-cp /workspace/utilidades_python/time_utils.py mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/time_utils.py mi_proyecto/utils/
 ```
 
 ### API
@@ -594,6 +595,152 @@ def pedir_fecha_al_usuario() -> str:
 
 ---
 
+## enviar_correo.py
+
+### Cuándo copiarlo
+
+- Tu proyecto necesita enviar correo desde un script o un daemon (alertas, reportes, notificaciones)
+- Ya produces errores vía `error_system.py` y quieres un script aparte que los lea del JSON y los mande por email
+- Quieres reemplazar el envío manual de `docker run ... correo-docker` por una llamada Python
+
+### Instalación
+
+```bash
+cp /workspace/utilidades_python/utils/enviar_correo.py mi_proyecto/utils/
+```
+
+No tiene dependencias externas. Solo stdlib (`smtplib`, `email`).
+
+### Configuración (.env)
+
+```bash
+EMISOR_CORREO=tu_correo@gmail.com
+PASS_CORREO=tu_app_password           # NO la password normal, la "app password" de Google
+RECEPTOR_CORREO=dest1@x.com,dest2@x.com   # separados por coma
+ASUNTO=UPS ALERTA
+TEXTO=                               # opcional, también se puede pasar en enviar()
+SMTP_HOST=smtp.gmail.com             # default
+SMTP_PORT=587                        # default (STARTTLS)
+```
+
+`ASUNTO`, `TEXTO`, `SMTP_HOST` y `SMTP_PORT` son opcionales. `EMISOR_CORREO`, `PASS_CORREO` y `RECEPTOR_CORREO` son obligatorios para `conectar()`.
+
+### API mínima (con context manager)
+
+```python
+from utils.enviar_correo import EmailWriter
+
+with EmailWriter() as m:
+    m.conectar()
+    m.enviar("hola", "cuerpo del mensaje")           # texto plano
+    m.enviar("alerta", "<h1>algo falló</h1>", html=True)
+# al salir del with se cierra la conexión SMTP
+```
+
+### API completa
+
+```python
+from utils.enviar_correo import EmailWriter
+
+m = EmailWriter()
+m.conectar()                                    # SMTP + EHLO + STARTTLS + login
+m.enviar()                                      # usa ASUNTO y TEXTO de env
+m.enviar("asunto custom", "cuerpo custom")      # override por llamada
+m.enviar("html", "<b>negrita</b>", html=True)   # cuerpo HTML
+m.cerrar()                                      # quit() del server
+```
+
+`EmailWriter` también es context manager (`__enter__`/`__exit__`) — `with EmailWriter() as m:` equivale a instanciar, conectar manualmente y llamar `cerrar()` al final.
+
+### Ejemplo real: daemon que consume los JSON de `error_system.py`
+
+```python
+# mi_daemon/main.py — corre en bucle, lee errores/ y manda cada uno por email
+import glob
+import os
+import time
+from dotenv import load_dotenv
+
+from utils.enviar_correo import EmailWriter
+from utils.json_writer import JsonFileWriter
+
+load_dotenv()
+
+CARPETA_ERRORES = os.getenv("CARPETA_ERRORES", "./errores/")
+
+def procesar_errero(ruta_json: str, m: EmailWriter) -> None:
+    payload = JsonFileWriter(ruta_json).read()
+    if not payload or not payload.get("errores"):
+        return
+    for err in payload["errores"]:
+        notif = err.get("notificacion", {})
+        if not notif.get("email"):
+            continue
+        cuerpo = f"[{err['tipo'].upper()}] {err['texto']}\n\nContexto: {err.get('contexto')}"
+        m.enviar(
+            asunto=f"[{payload.get('origen')}] {err['tipo']}: {err['texto'][:50]}",
+            cuerpo=cuerpo,
+        )
+    os.remove(ruta_json)                # marca como procesado
+
+def main():
+    with EmailWriter() as m:
+        m.conectar()
+        while True:
+            for ruta in glob.glob(os.path.join(CARPETA_ERRORES, "errores_*.json")):
+                try:
+                    procesar_errero(ruta, m)
+                except Exception as e:
+                    print(f"fallo procesando {ruta}: {e}")
+            time.sleep(60)
+
+if __name__ == "__main__":
+    main()
+```
+
+### Ejemplo real: envío directo (un solo correo desde un script)
+
+```python
+# mi_script/main.py
+from utils.enviar_correo import EmailWriter
+
+with EmailWriter() as m:
+    m.conectar()
+    m.enviar(
+        asunto="reporte diario",
+        cuerpo="<h1>OK</h1><p>todo fue bien</p>",
+        html=True,
+    )
+```
+
+### Ejemplo real: docker entrypoint (migración del antiguo `envio_correo_docker`)
+
+El antiguo `envio_correo_docker/Dockerfile` ahora apunta a `../utils/enviar_correo.py` y se construye con `docker build` desde la raíz del repo. El entrypoint sigue siendo el mismo:
+
+```bash
+docker build -t correo-docker /workspace/utilidades_python/
+docker run --rm \
+  -e EMISOR_CORREO=tu_correo@gmail.com \
+  -e PASS_CORREO=tu_app_password \
+  -e RECEPTOR_CORREO=dest@x.com \
+  -e ASUNTO="UPS ALERTA" \
+  -e TEXTO="UPS ha cambiado de estado" \
+  correo-docker
+```
+
+Igual que antes, pero ahora `enviar_correo.py` también se puede importar como utilidad Python normal desde otro proyecto.
+
+### Errores comunes
+
+- **Usar la password normal de Gmail en vez de app password** → Google la rechaza. Genera una en [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) y úsala como `PASS_CORREO`.
+- **Olvidar `SMTP_HOST`/`SMTP_PORT`** → tienen defaults (`smtp.gmail.com` / `587`) pero si tu proveedor usa otro (Outlook, Sendgrid, Mailgun) ponlos en env.
+- **Confundir `html=False` con pasar HTML en el cuerpo** → si el cuerpo es `<b>hola</b>` y `html=False`, se envía literal como texto. Pon `html=True` para que se renderice.
+- **Llamar `enviar()` antes de `conectar()`** → lanza `RuntimeError`. Siempre: `conectar()` → `enviar()` → `cerrar()` (o usa el `with`).
+- **Olvidar `cerrar()` sin context manager** → la conexión SMTP queda abierta. Usa `with EmailWriter() as m:` para evitarlo.
+- **Asumir que el subject es opcional** → siempre se asigna `mensaje["Subject"]`. Si no pasas `asunto`, se usa el de env (o `"UPS ALERTA"` por default).
+
+---
+
 ## check_updates.py
 
 ### Cuándo copiarlo
@@ -604,25 +751,25 @@ Tienes 2+ proyectos con copias de las utilidades y quieres saber cuáles están 
 
 ### Instalación
 
-No requiere instalación. Ya está en la raíz de este repo. Para usarlo en otra máquina, copia `check_updates.py` (es autocontenido, solo stdlib).
+Vive en `utils/check_updates.py` dentro de este repo. Para usarlo en otra máquina, copia el archivo (es autocontenido, solo stdlib) y ejecútalo con `python utils/check_updates.py`.
 
 ### Uso básico
 
 ```bash
-python check_updates.py <directorio_origen> <directorio_destino>
+python utils/check_updates.py <directorio_utils_origen> <directorio_utils_destino>
 ```
 
 Donde:
 
-- `directorio_origen` = ruta a este repo (donde están los `.py` con `__version__`)
-- `directorio_destino` = ruta al `utils/` de tu proyecto (o donde hayas copiado los archivos)
+- `directorio_utils_origen` = ruta al `utils/` de este repo (donde están los `.py` con `__version__`)
+- `directorio_utils_destino` = ruta al `utils/` de tu proyecto (o donde hayas copiado los archivos)
 
 ### Ejemplo: chequear un proyecto
 
 ```bash
-$ python check_updates.py /workspace/utilidades_python/ ~/work/mi_app/utils/
+$ python utils/check_updates.py /workspace/utilidades_python/utils/ ~/work/mi_app/utils/
 
-Origen:  /workspace/utilidades_python
+Origen:  /workspace/utilidades_python/utils
 Destino: /home/user/work/mi_app/utils
 
   archivo           origen      destino     estado
@@ -642,7 +789,7 @@ Exit: 1
 ```bash
 $ for proj in ~/work/*/; do
     echo "### $proj ###"
-    python check_updates.py /workspace/utilidades_python/ "$proj/utils/"
+    python utils/check_updates.py /workspace/utilidades_python/utils/ "$proj/utils/"
   done
 
 ### /home/user/work/app_a/ ###
@@ -679,7 +826,7 @@ Exit: 1
 Útil para integrar en scripts o CI:
 
 ```bash
-if python check_updates.py /workspace/utilidades_python/ ~/work/mi_app/utils/; then
+if python utils/check_updates.py /workspace/utilidades_python/utils/ ~/work/mi_app/utils/; then
     echo "todo actualizado"
 else
     echo "hay que actualizar algo"
@@ -691,14 +838,15 @@ fi
 Si lo ejecutas sin argumentos, corre el self-check integrado:
 
 ```bash
-$ python check_updates.py
+$ python utils/check_updates.py
 # ... (corre tests internos) ...
 check_updates v1.0.0 OK
 ```
 
 ### Errores comunes
 
-- **Pasar el directorio del proyecto en vez de `utils/`** → `check_updates` compara archivos `.py` directamente. Si pasas `~/work/mi_app/`, mirará los `.py` de la raíz del proyecto, no los de `utils/`. Pasa siempre la carpeta concreta.
+- **Pasar la raíz del proyecto en vez de `utils/`** → `check_updates` compara archivos `.py` directamente. Si pasas `~/work/mi_app/`, mirará los `.py` de la raíz del proyecto, no los de `utils/`. Pasa siempre la carpeta concreta.
+- **Pasar este repo sin el sufijo `/utils/`** → ahora los `.py` viven en `utils/`, así que el origen debe apuntar a `utils/` también: `/workspace/utilidades_python/utils/`. Si pasas solo `/workspace/utilidades_python/`, no encontrará ningún `.py`.
 - **Rutas con espacios sin comillas** → `"~/work/mi app/utils/"` debe ir entre comillas dobles en el shell, sino se corta en el espacio.
 - **Path absoluto vs relativo** → `check_updates` normaliza a absoluto con `os.path.abspath`, así que puedes mezclar. Pero para que la salida sea legible, pasa absolutos.
 - **Esperar que actualice automáticamente** → por diseño NO copia. Solo informa. La copia es decisión tuya (consciente).

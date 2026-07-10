@@ -10,16 +10,19 @@ Librería raíz de utilidades Python reutilizables, pensada para copiarse archiv
 
 ## Qué hay aquí
 
+Todos los `.py` viven en `utils/`:
+
 | Archivo | Versión | Para qué sirve | Cuándo copiarlo |
 |---|---|---|---|
-| `csv_writer.py` | 1.0.0 | Leer/escribir CSV con control de cabeceras y modos (`w`/`a`) | Siempre que escribas CSVs a fichero |
-| `text_writer.py` | 1.0.1 | Leer/escribir ficheros de texto plano con append limpio (sin `\n` espurio en archivo nuevo) | Cuando necesites logs o `.txt` simples |
-| `json_writer.py` | 1.0.0 | Leer/escribir JSON creando carpetas padre y con append dict/list | Cuando persistas estado o config en JSON |
-| `error_system.py` | 1.0.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control, consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
-| `time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
-| `check_updates.py` | 1.0.0 | Compara versiones entre este repo y un proyecto destino | Cuando tengas 2+ proyectos con copias de las utilidades |
+| `utils/csv_writer.py` | 1.0.0 | Leer/escribir CSV con control de cabeceras y modos (`w`/`a`) | Siempre que escribas CSVs a fichero |
+| `utils/text_writer.py` | 1.0.1 | Leer/escribir ficheros de texto plano con append limpio (sin `\n` espurio en archivo nuevo) | Cuando necesites logs o `.txt` simples |
+| `utils/json_writer.py` | 1.0.0 | Leer/escribir JSON creando carpetas padre y con append dict/list | Cuando persistas estado o config en JSON |
+| `utils/error_system.py` | 1.0.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control, consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
+| `utils/time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
+| `utils/enviar_correo.py` | 1.0.0 | Envío de correo vía SMTP (Gmail por defecto) con soporte texto/HTML, lee de env vars | Cuando necesites enviar correo desde un script o un daemon |
+| `utils/check_updates.py` | 1.0.0 | Compara versiones entre este repo y un proyecto destino | Cuando tengas 2+ proyectos con copias de las utilidades |
 
-Todos los `.py` tienen un **self-check ejecutable**: `python nombre_archivo.py`.
+Todos los `.py` tienen un **self-check ejecutable**: `python -m utils.nombre_archivo` (sin args corre el self-check; con `<origen> <destino>` corre `check_updates`).
 
 ## Cómo usarlo en un proyecto real (paso a paso)
 
@@ -48,10 +51,10 @@ Crea la carpeta `utils/` (vacía por ahora).
 ### 3. Copia los archivos desde este repo
 
 ```bash
-cp /workspace/utilidades_python/csv_writer.py   mi_proyecto/utils/
-cp /workspace/utilidades_python/text_writer.py  mi_proyecto/utils/
-cp /workspace/utilidades_python/json_writer.py  mi_proyecto/utils/
-cp /workspace/utilidades_python/error_system.py mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/csv_writer.py   mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/text_writer.py  mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/json_writer.py  mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/error_system.py mi_proyecto/utils/
 ```
 
 ### 4. Verifica versiones
@@ -158,7 +161,7 @@ Cada vez que empieces un proyecto nuevo:
 Cuando pasen semanas, puede que este repo tenga versiones nuevas. Ejecuta:
 
 ```bash
-python check_updates.py /workspace/utilidades_python/ ~/work/mi_proyecto/utils/
+python utils/check_updates.py /workspace/utilidades_python/utils/ ~/work/mi_proyecto/utils/
 ```
 
 Si hay `DESACTUALIZADO` o `FALTA_EN_DESTINO`, copia el archivo actualizado.
@@ -168,7 +171,7 @@ Para chequear varios proyectos de golpe:
 ```bash
 for proj in ~/work/*/; do
   echo "--- $proj ---"
-  python check_updates.py /workspace/utilidades_python/ "$proj/utils/"
+  python utils/check_updates.py /workspace/utilidades_python/utils/ "$proj/utils/"
 done
 ```
 
@@ -277,15 +280,45 @@ w.read()                               # {'a': 1, 'b': [1, 2, 3]} o None
 w.append({"c": "nuevo"})               # carga, hace update (dict) o extend (list), reescribe
 ```
 
+### `enviar_correo`
+
+```python
+from utils.enviar_correo import EmailWriter
+
+# Lee config de env vars: EMISOR_CORREO, PASS_CORREO, RECEPTOR_CORREO (csv),
+# ASUNTO, TEXTO, SMTP_HOST (default smtp.gmail.com), SMTP_PORT (default 587)
+
+with EmailWriter() as m:
+    m.conectar()
+    m.enviar("asunto", "cuerpo")                # texto plano
+    m.enviar("asunto", "<h1>hola</h1>", html=True)
+# al salir del with se cierra la conexión automáticamente
+```
+
+Sin context manager:
+
+```python
+m = EmailWriter()
+m.conectar()
+m.enviar()                                      # usa ASUNTO y TEXTO de env
+m.cerrar()
+```
+
+Pensado para el daemon que consume los JSON de `error_system.py`: lee cada error y lo envía por correo si `notificacion.email` es True.
+
 ### `check_updates`
 
 ```bash
-python check_updates.py <origen> <destino>
+python utils/check_updates.py <directorio_utils_origen> <directorio_utils_destino>
 ```
+
+Ejemplo: `python utils/check_updates.py /workspace/utilidades_python/utils/ ~/work/mi_app/utils/`
 
 Estados posibles: `OK` / `DESACTUALIZADO` / `FALTA_EN_DESTINO` / `MAS_NUEVO_EN_DESTINO` / `SIN_VERSION`.
 
 Exit codes: `0` todo OK, `1` hay problemas, `2` error de argumentos o rutas.
+
+Sin argumentos corre el self-check.
 
 ## Schema JSON v1 de errores
 
@@ -329,21 +362,29 @@ SemVer simple:
 
 ## Changelog
 
+### 1.1.0 — refactor a `utils/` + `enviar_correo`
+
+- **Refactor**: todas las utilidades se mueven a `utils/`. El comando de `check_updates` pasa a ser `python utils/check_updates.py`. Los self-checks se invocan con `python -m utils.nombre`.
+- `enviar_correo.py` v1.0.0 — `EmailWriter` (envío SMTP con STARTTLS, texto/HTML, context manager, configuración por env vars, self-check sin envío real). Adaptación al patrón utility del antiguo `envio_correo_docker/enviar_correo.py`.
+- `error_system.py` — imports ajustados a relativos (`.json_writer`, `.text_writer`).
+- `envio_correo_docker/Dockerfile` — actualizado para apuntar a `utils/enviar_correo.py`.
+- `README.md` / `TUTORIAL.md` — rutas, índice y secciones actualizadas a la nueva estructura.
+
 ### 1.0.0 — inicial
 
-- `csv_writer.py` v1.0.0 — `CSVWriter` (write/add_row/clear/is_empty/read_all) + `exportar_csv` (wrapper de un solo uso)
-- `text_writer.py` v1.0.0 — `TextFileWriter` (write/add_line/clear/read_all)
-- `text_writer.py` v1.0.1 — fix: `add_line` ya no añade `\n` espurio cuando el archivo no existe
-- `json_writer.py` v1.0.0 — `JsonFileWriter` (write/read/append con creación de carpetas)
-- `error_system.py` v1.0.0 — sistema unificado: `validar_error`, `nuevo_error`, `fdatos_keys_errores`, `registrar_errores`, `envio_control`
-- `time_utils.py` v1.0.0 — `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida`
-- `check_updates.py` v1.0.0 — comparador origen/destino con self-check y CLI
+- `utils/csv_writer.py` v1.0.0 — `CSVWriter` (write/add_row/clear/is_empty/read_all) + `exportar_csv` (wrapper de un solo uso)
+- `utils/text_writer.py` v1.0.0 — `TextFileWriter` (write/add_line/clear/read_all)
+- `utils/text_writer.py` v1.0.1 — fix: `add_line` ya no añade `\n` espurio cuando el archivo no existe
+- `utils/json_writer.py` v1.0.0 — `JsonFileWriter` (write/read/append con creación de carpetas)
+- `utils/error_system.py` v1.0.0 — sistema unificado: `validar_error`, `nuevo_error`, `fdatos_keys_errores`, `registrar_errores`, `envio_control`
+- `utils/time_utils.py` v1.0.0 — `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida`
+- `utils/check_updates.py` v1.0.0 — comparador origen/destino con self-check y CLI
 - `README.md` — overview, tabla, 8 pasos, API resumida, schema, changelog
 - `TUTORIAL.md` — guía detallada por utilidad: instalación, API completa, ejemplos reales, errores comunes
 
 ## Lo que NO hace este repo
 
-- **No envía correos**. El envío de correo es responsabilidad del daemon que consuma los JSON
-- **No escribe en BBDD**. Mismo motivo
-- **No es un paquete pip**. Se copia archivo a archivo, no se instala
+- **No escribe en BBDD**. El registro en BBDD es responsabilidad del daemon externo que consuma los JSON
+- **No es un paquete pip**. Se copia archivo a archivo a `utils/` del proyecto destino, no se instala
 - **No tiene tests con pytest**. Cada archivo tiene un self-check ejecutable que verifica la lógica principal
+- **El envío de correo vive en una utilidad, pero NO incluye la lógica del daemon**: `enviar_correo.py` envía un correo configurado por env vars, pero no implementa el bucle que consume los JSON de `error_system.py` y los despacha. Esa lógica de daemon queda fuera del alcance de esta librería
