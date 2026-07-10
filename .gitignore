@@ -1,1 +1,18 @@
 .texto
+# OpenCode / agent local state
+.opencode/local/
+*.opencode-session
+
+# codebase-memory-mcp: el índice es binario/local, no se versiona
+.cbm/
+*.cbm.db
+
+# Secretos
+.env
+.env.*
+!.env.example
+
+# Node / build habituales
+node_modules/
+dist/
+build/
