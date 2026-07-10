@@ -32,8 +32,8 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-from json_writer import JsonFileWriter
-from text_writer import TextFileWriter
+from .json_writer import JsonFileWriter
+from .text_writer import TextFileWriter
 
 
 SCHEMA_VERSION = "1.0"
