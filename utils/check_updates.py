@@ -3,14 +3,14 @@
 # __version__ = "1.0.0"
 #
 # Uso:
-#   python check_updates.py <directorio_origen> <directorio_destino>
+#   python utils/check_updates.py <directorio_utils_origen> <directorio_utils_destino>
 #
 # Ejemplo:
-#   python check_updates.py /workspace/utilidades_python/ ~/work/mi_proyecto/utils/
+#   python utils/check_updates.py /workspace/utilidades_python/utils/ ~/work/mi_proyecto/utils/
 #
 # Para chequear varios proyectos de una vez:
 #   for proj in ~/work/*/; do
-#     python check_updates.py /workspace/utilidades_python/ "$proj/utils/"
+#     python utils/check_updates.py /workspace/utilidades_python/utils/ "$proj/utils/"
 #   done
 #
 # Exit codes:
