@@ -3,10 +3,10 @@
 Librería raíz de utilidades Python reutilizables, pensada para copiarse archivo a archivo en distintos proyectos personales.
 
 > **¿Overview rápido o tutorial profundo?**
-> - Estás en el **README** (overview, tabla, 8 pasos para empezar, API resumida, schema, changelog)
-> - Para tutorial detallado por utilidad (instalación, API completa, ejemplos reales, errores comunes), mira **[TUTORIAL.md](TUTORIAL.md)**
+> - Estás en el **README** (overview, quickstart, schema, convención de versionado, changelog).
+> - Para tutorial detallado por utilidad (instalación, API completa, ejemplos reales, errores comunes), mira **[TUTORIAL.md](TUTORIAL.md)** — es la fuente de detalle.
 >
-> `check_updates.py` para mantenimiento entre proyectos → también cubierto en TUTORIAL.md
+> La guía de referencia rápida de la API para IAs vive en **[utils/GUIA_IA.md](utils/GUIA_IA.md)**.
 
 ## Qué hay aquí
 
@@ -17,308 +17,27 @@ Todos los `.py` viven en `utils/`:
 | `utils/csv_writer.py` | 1.0.0 | Leer/escribir CSV con control de cabeceras y modos (`w`/`a`) | Siempre que escribas CSVs a fichero |
 | `utils/text_writer.py` | 1.0.1 | Leer/escribir ficheros de texto plano con append limpio (sin `\n` espurio en archivo nuevo) | Cuando necesites logs o `.txt` simples |
 | `utils/json_writer.py` | 1.0.0 | Leer/escribir JSON creando carpetas padre y con append dict/list | Cuando persistas estado o config en JSON |
-| `utils/error_system.py` | 1.0.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control, consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
+| `utils/error_system.py` | 2.0.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
 | `utils/time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
 | `utils/enviar_correo.py` | 1.0.0 | Envío de correo vía SMTP (Gmail por defecto) con soporte texto/HTML, lee de env vars | Cuando necesites enviar correo desde un script o un daemon |
 | `utils/check_updates.py` | 1.0.0 | Compara versiones entre este repo y un proyecto destino | Cuando tengas 2+ proyectos con copias de las utilidades |
 
 Todos los `.py` tienen un **self-check ejecutable**: `python -m utils.nombre_archivo` (sin args corre el self-check; con `<origen> <destino>` corre `check_updates`).
 
-## Cómo usarlo en un proyecto real (paso a paso)
+## Quickstart
 
-Ejemplo: quieres añadir estas utilidades a un proyecto que ya tienes (`mi_proyecto/`). El proyecto es un scraper que cada día descarga datos y los guarda en CSVs, y quieres registrar errores y trazas.
+Cuatro pasos; cada uno linka a la sección detallada del tutorial.
 
-### 1. Identifica qué necesitas
+1. **[Instala las utilidades que necesitas](TUTORIAL.md#instalar-una-utilidad-en-tu-proyecto)** — copia archivo a archivo a `utils/` de tu proyecto (no es paquete pip).
+   Ojo a [las dependencias](TUTORIAL.md#dependencias-entre-utilidades): `error_system` necesita `json_writer`.
 
-Para este ejemplo necesitas: `csv_writer.py`, `text_writer.py`, `json_writer.py`, `error_system.py`. No necesitas `time_utils` ni `check_updates` (este último solo lo usas TÚ, el desarrollador, no el proyecto).
+2. **[Configura el `.env`](TUTORIAL.md#configuración-env)** — las utilidades leen de env vars (carpeta de errores, log de control y niveles, credenciales SMTP, etc.).
 
-### 2. Prepara la estructura del proyecto
+3. **[Escribe tu `main.py`](TUTORIAL.md#ejemplo-real-scraper-con-notificación)** — importa como `from utils.<utilidad> import ...` y usa. Hay ejemplos completos en TUTORIAL por cada utilidad.
 
-```
-mi_proyecto/
-├── .env                          # variables de entorno (no commitear)
-├── main.py                       # tu programa principal
-├── utils/                        # aquí van las utilidades copiadas
-│   ├── csv_writer.py
-│   ├── text_writer.py
-│   ├── json_writer.py
-│   └── error_system.py
-└── ...
-```
+4. **[Mantén tus copias actualizadas](TUTORIAL.md#comprobar-si-tus-copias-están-actualizadas)** — `python utils/check_updates.py` detecta versiones desactualizadas. Tras copiar, corre el self-check de la utilidad.
 
-Crea la carpeta `utils/` (vacía por ahora).
-
-### 3. Copia los archivos desde este repo
-
-```bash
-cp /workspace/utilidades_python/utils/csv_writer.py   mi_proyecto/utils/
-cp /workspace/utilidades_python/utils/text_writer.py  mi_proyecto/utils/
-cp /workspace/utilidades_python/utils/json_writer.py  mi_proyecto/utils/
-cp /workspace/utilidades_python/utils/error_system.py mi_proyecto/utils/
-```
-
-### 4. Verifica versiones
-
-Abre cualquiera de los archivos copiados, mira la cabecera:
-
-```python
-# utilidades-python:csv_writer
-# Descripción: Escritura/lectura simple de CSV con control de cabeceras y modos
-# __version__ = "1.0.0"
-```
-
-Compara con la tabla de arriba. Si tu versión es menor, copia el archivo actualizado.
-
-### 5. Configura el `.env` del proyecto
-
-```bash
-# .env (en la raíz de mi_proyecto, NO commitear)
-CARPETA_ERRORES=/var/log/mi_proyecto/errores
-RUTA_CONTROL=/var/log/mi_proyecto/control.txt
-```
-
-Carga el `.env` con `python-dotenv` (o como prefieras):
-
-```python
-from dotenv import load_dotenv
-load_dotenv()
-```
-
-### 6. Escribe tu `main.py`
-
-```python
-# main.py
-import time
-from datetime import date
-from dotenv import load_dotenv
-
-from utils.csv_writer import exportar_csv
-from utils.text_writer import TextFileWriter
-from utils.error_system import (
-    nuevo_error,
-    registrar_errores,
-    envio_control,
-    fdatos_keys_errores,
-    validar_error,
-)
-from utils.time_utils import convert_fecha_en_str, es_fecha_valida
-
-load_dotenv()
-
-SISTEMA = {"email": True, "log": True, "bbdd": False}
-errores = []
-
-envio_control(f"=== Inicio {date.today()} ===")
-
-# --- lógica del proyecto ---
-inicio = time.time()
-hoy_str = convert_fecha_en_str(date.today())
-archivo = f"/data/scraper_{hoy_str}.csv"
-cabecera = ["fecha", "valor", "estado"]
-
-try:
-    envio_control("Descargando datos...")
-    # ... tu lógica real ...
-    datos = [str(date.today()), "42", "ok"]
-    exportar_csv(archivo, datos, cabecera, modo="sobrescribir")
-    envio_control("CSV escrito correctamente")
-
-except Exception as e:
-    errores.append(nuevo_error(
-        tipo="aviso",
-        texto=f"Fallo al procesar: {e}",
-        notificar_email=True,
-        notificar_log=True,
-        contexto={"fichero": archivo},
-    ))
-
-duracion = time.time() - inicio
-envio_control(f"Duración: {duracion:.2f}s")
-
-# --- al final del proceso, vuelca errores a JSON para el daemon ---
-if errores:
-    tipos = fdatos_keys_errores(errores, "tipo")
-    envio_control(f"Registrando {len(errores)} errores, tipos: {tipos}")
-    ruta = registrar_errores(SISTEMA, errores, origen="mi_proyecto_scraper")
-    envio_control(f"Errores escritos en: {ruta}")
-else:
-    envio_control("Sin errores")
-
-envio_control("=== Fin ===")
-```
-
-### 7. Repite en cada proyecto
-
-Cada vez que empieces un proyecto nuevo:
-
-1. Decide qué archivos necesitas (la mayoría usa los 4 mismos)
-2. Cópialos a `utils/`
-3. Configura las env vars en el `.env` del proyecto
-4. Importa y a funcionar
-
-### 8. Mantenimiento: detecta actualizaciones
-
-Cuando pasen semanas, puede que este repo tenga versiones nuevas. Ejecuta:
-
-```bash
-python utils/check_updates.py /workspace/utilidades_python/utils/ ~/work/mi_proyecto/utils/
-```
-
-Si hay `DESACTUALIZADO` o `FALTA_EN_DESTINO`, copia el archivo actualizado.
-
-Para chequear varios proyectos de golpe:
-
-```bash
-for proj in ~/work/*/; do
-  echo "--- $proj ---"
-  python utils/check_updates.py /workspace/utilidades_python/utils/ "$proj/utils/"
-done
-```
-
-## API de las utilidades
-
-### `error_system` (módulo unificado)
-
-```python
-from utils.error_system import (
-    nuevo_error,
-    registrar_errores,
-    envio_control,
-    fdatos_keys_errores,
-    validar_error,
-    SCHEMA_VERSION,
-    TIPOS_VALIDOS,
-)
-
-# fabricar error
-err = nuevo_error(
-    tipo="aviso",                       # "aviso" | "stop" | "info"
-    texto="descripción legible",
-    notificar_email=True,
-    notificar_log=True,
-    notificar_bbdd=False,
-    contexto={"jornada": 12, "equipo": "X"},
-)
-
-# validar contra schema v1
-if not validar_error(err):
-    raise ValueError("error mal formado")
-
-# consultar por clave
-tipos = fdatos_keys_errores(lista_errores, "tipo")     # ["aviso", "stop", ...]
-dias  = fdatos_keys_errores(lista_errores, "dia")      # ["2026-07-10", ...]
-
-# registrar y volcar a JSON (un fichero por llamada)
-ruta = registrar_errores(
-    sistema={"email": True, "log": True, "bbdd": False},
-    errores=lista_errores,
-    origen="mi_proyecto",
-    carpeta=None,                       # None → usa env CARPETA_ERRORES o "./errores/"
-)
-
-# trazas de control (log de ejecución)
-envio_control("inicio del proceso")     # append a RUTA_CONTROL
-```
-
-### `time_utils`
-
-```python
-from utils.time_utils import (
-    convert_str_en_fecha,               # "YYYYMMDD" → date
-    convert_fecha_en_str,               # date → "YYYYMMDD"
-    es_fecha_valida,                    # date o "YYYY-MM-DD" → bool
-)
-
-d = convert_str_en_fecha("20260710")    # date(2026, 7, 10)
-s = convert_fecha_en_str(d)             # "20260710"
-
-es_fecha_valida("2026-07-10")           # True
-es_fecha_valida("20260710")             # False (formato compacto no soportado aquí)
-es_fecha_valida("2026-13-40")           # False
-```
-
-**Nota sobre formatos**: `convert_*` usan **compacto** `YYYYMMDD`; `es_fecha_valida` acepta objetos `date` o strings **extendidos** `YYYY-MM-DD`. Si necesitas validar un string compacto, conviértelo primero con `convert_str_en_fecha` y captura la excepción.
-
-### `csv_writer`
-
-```python
-from utils.csv_writer import CSVWriter, exportar_csv
-
-# Clase con estado
-w = CSVWriter("/data/x.csv", ["col1", "col2"])
-w.write_data(["v1", "v2"])             # crea / sobrescribe, escribe cabecera + fila
-w.add_row(["v3", "v4"])                # anexa fila
-w.read_all()                           # [{"col1": "v1", "col2": "v2"}, ...]
-w.is_empty_csv()                       # bool
-w.clear_file()                         # vacía
-
-# Wrapper de un solo uso
-exportar_csv("/data/x.csv", ["v1"], cabecera=["c1"], modo="sobrescribir")  # bool
-exportar_csv("/data/x.csv", ["v2"], cabecera=["c1"], modo="anexar")        # bool
-```
-
-### `text_writer`
-
-```python
-from utils.text_writer import TextFileWriter
-
-w = TextFileWriter("/data/x.txt")
-w.write_data("texto inicial")          # crea / sobrescribe
-w.add_line("segunda línea")            # append limpio (añade \n solo si el archivo no está vacío)
-w.read_all()                           # "texto inicial\nsegunda línea"
-w.clear_file()                         # vacía
-```
-
-### `json_writer`
-
-```python
-from utils.json_writer import JsonFileWriter
-
-w = JsonFileWriter("/data/x.json")
-w.write({"a": 1, "b": [1, 2, 3]})      # sobrescribe, crea carpetas padre
-w.read()                               # {'a': 1, 'b': [1, 2, 3]} o None
-w.append({"c": "nuevo"})               # carga, hace update (dict) o extend (list), reescribe
-```
-
-### `enviar_correo`
-
-```python
-from utils.enviar_correo import EmailWriter
-
-# Lee config de env vars: EMISOR_CORREO, PASS_CORREO, RECEPTOR_CORREO (csv),
-# ASUNTO, TEXTO, SMTP_HOST (default smtp.gmail.com), SMTP_PORT (default 587)
-
-with EmailWriter() as m:
-    m.conectar()
-    m.enviar("asunto", "cuerpo")                # texto plano
-    m.enviar("asunto", "<h1>hola</h1>", html=True)
-# al salir del with se cierra la conexión automáticamente
-```
-
-Sin context manager:
-
-```python
-m = EmailWriter()
-m.conectar()
-m.enviar()                                      # usa ASUNTO y TEXTO de env
-m.cerrar()
-```
-
-Pensado para el daemon que consume los JSON de `error_system.py`: lee cada error y lo envía por correo si `notificacion.email` es True.
-
-### `check_updates`
-
-```bash
-python utils/check_updates.py <directorio_utils_origen> <directorio_utils_destino>
-```
-
-Ejemplo: `python utils/check_updates.py /workspace/utilidades_python/utils/ ~/work/mi_app/utils/`
-
-Estados posibles: `OK` / `DESACTUALIZADO` / `FALTA_EN_DESTINO` / `MAS_NUEVO_EN_DESTINO` / `SIN_VERSION`.
-
-Exit codes: `0` todo OK, `1` hay problemas, `2` error de argumentos o rutas.
-
-Sin argumentos corre el self-check.
+> **Receta típica:** `csv_writer` + `json_writer` + `error_system` (van juntos) cubren scraper + estado + errores + trazas. Añade `enviar_correo` si quieres despachar las alertas por email.
 
 ## Schema JSON v1 de errores
 
@@ -362,6 +81,18 @@ SemVer simple:
 
 ## Changelog
 
+### 2.0.0 — `error_system` con logger profesional
+
+- `utils/error_system.py` **v2.0.0** (breaking):
+  - `envio_control` ahora usa stdlib `logging` + `TimedRotatingFileHandler`. Cada línea lleva timestamp y nivel (`2026-07-16 09:30:00,123 | INFO | msg`), en lugar de texto plano.
+  - Rotación temporal automática: `LOG_ROTACION_DIAS` (default 15) + `LOG_BACKUPS` (default 4) ≈ 2 meses de retención.
+  - Niveles: `envio_control("msg", nivel="DEBUG|INFO|WARNING|ERROR|CRITICAL")`. Filtrado por `LOG_NIVEL` (default `INFO`).
+  - Configuración centralizada por env vars: `RUTA_CONTROL` (default `./control.log`), `LOG_NIVEL`, `LOG_ROTACION_DIAS`, `LOG_BACKUPS`, `LOG_FMT`, `LOG_CONSOLE`.
+  - **Breaking**: el fichero pasa de `control.txt` (plano) a `control.log` (con timestamp/nivel). Programas que parseaban el `.txt` crudo deben adaptar el parser; la llamada `envio_control("texto")` sigue funcionando sin cambios.
+  - Quitada la dependencia interna de `TextFileWriter` para el log (se sigue usando stdlib `logging`).
+- `README.md` — adelgazado a overview + quickstart + schema + changelog. El detalle pasa a TUTORIAL.
+- `README.md` / `TUTORIAL.md` / `utils/GUIA_IA.md` / `AGENTS.md` — actualizados con la nueva API de log y env vars.
+
 ### 1.1.0 — refactor a `utils/` + `enviar_correo`
 
 - **Refactor**: todas las utilidades se mueven a `utils/`. El comando de `check_updates` pasa a ser `python utils/check_updates.py`. Los self-checks se invocan con `python -m utils.nombre`.
@@ -384,7 +115,7 @@ SemVer simple:
 
 ## Lo que NO hace este repo
 
-- **No escribe en BBDD**. El registro en BBDD es responsabilidad del daemon externo que consuma los JSON
-- **No es un paquete pip**. Se copia archivo a archivo a `utils/` del proyecto destino, no se instala
-- **No tiene tests con pytest**. Cada archivo tiene un self-check ejecutable que verifica la lógica principal
-- **El envío de correo vive en una utilidad, pero NO incluye la lógica del daemon**: `enviar_correo.py` envía un correo configurado por env vars, pero no implementa el bucle que consume los JSON de `error_system.py` y los despacha. Esa lógica de daemon queda fuera del alcance de esta librería
+- **No escribe en BBDD**. El registro en BBDD es responsabilidad del daemon externo que consuma los JSON.
+- **No es un paquete pip**. Se copia archivo a archivo a `utils/` del proyecto destino, no se instala.
+- **No tiene tests con pytest**. Cada archivo tiene un self-check ejecutable que verifica la lógica principal.
+- **El envío de correo vive en una utilidad, pero NO incluye la lógica del daemon**: `enviar_correo.py` envía un correo configurado por env vars, pero no implementa el bucle que consume los JSON de `error_system.py` y los despacha. Esa lógica de daemon queda fuera del alcance de esta librería.

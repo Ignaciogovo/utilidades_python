@@ -4,6 +4,7 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 
 Índice:
 
+- [Instalación, actualización y verificación](#instalación-actualización-y-verificación)
 - [csv_writer.py](#csv_writerpy)
 - [text_writer.py](#text_writerpy)
 - [json_writer.py](#json_writerpy)
@@ -14,6 +15,86 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 
 ---
 
+## Instalación, actualización y verificación
+
+### Instalar una utilidad en tu proyecto
+
+Este repo **no es un paquete pip**: se copia archivo a archivo. Para cada
+utilidad que necesites, copia su `.py` a la carpeta `utils/` de tu proyecto:
+
+```bash
+# desde la raíz de tu proyecto (o donde quieras)
+mkdir -p mi_proyecto/utils
+cp /workspace/utilidades_python/utils/<utilidad>.py mi_proyecto/utils/
+```
+
+Ejemplos:
+
+```bash
+cp /workspace/utilidades_python/utils/csv_writer.py     mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/error_system.py   mi_proyecto/utils/
+cp /workspace/utilidades_python/utils/json_writer.py    mi_proyecto/utils/
+```
+
+Importa siempre como `from utils.<utilidad> import ...`.
+
+### Dependencias entre utilidades
+
+La mayoría son autocontenidas (solo stdlib). Solo una tiene dependencia
+interna:
+
+| Utilidad | Depende de | Notas |
+|---|---|---|
+| `error_system` | `json_writer` | Para escribir los JSON de errores. El log de control (`envio_control`) usa stdlib `logging`, no `text_writer`. |
+| `csv_writer`, `text_writer`, `json_writer`, `time_utils`, `enviar_correo`, `check_updates` | — | Autocontenidas |
+
+Copia siempre las dependencias junto con la utilidad (en este caso,
+`error_system` y `json_writer` van juntos).
+
+### Verificar que funciona (self-check)
+
+Cada utilidad trae un self-check ejecutable. Sin argumentos, corre pruebas
+internas y muestra `vX.Y.Z OK` al final:
+
+```bash
+python -m utils.csv_writer
+python -m utils.error_system
+# ... con cualquier utilidad
+```
+
+Útil tras copiar un archivo o tras modificarlo: si ves `OK`, está sano.
+
+### Comprobar si tus copias están actualizadas
+
+`check_updates.py` compara las versiones de este repo (origen) con las de tu
+proyecto (destino):
+
+```bash
+python utils/check_updates.py /workspace/utilidades_python/utils/  ~/work/mi_proyecto/utils/
+```
+
+Reporta estados `OK` / `DESACTUALIZADO` / `FALTA_EN_DESTINO` /
+`MAS_NUEVO_EN_DESTINO` / `SIN_VERSION` (ver [interpretación de
+estados](#interpretación-de-estados)). Exit codes: `0` todo OK, `1` hay
+problemas, `2` error de argumentos/rutas. Para ejemplos, bucle para varios
+proyectos y errores comunes, ver [check_updates.py](#check_updatespy).
+
+### Actualizar una utilidad
+
+Cuando `check_updates` marque `DESACTUALIZADO` o `FALTA_EN_DESTINO`, recopia
+el archivo desde el origen y vuelve a correr el self-check:
+
+```bash
+cp /workspace/utilidades_python/utils/error_system.py mi_proyecto/utils/
+python -m utils.error_system   # debe decir v2.0.0 OK
+```
+
+Si el cambio es major (p.ej. `error_system` 1.0.0 → 2.0.0), revisa la nota de
+migración en la sección de esa utilidad (puede haber breaking changes, como
+el cambio de `control.txt` a `control.log`).
+
+---
+
 ## csv_writer.py
 
 ### Cuándo copiarlo a tu proyecto
@@ -21,16 +102,6 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 - Generas reportes en CSV (scrapers, exports de BBDD, listados)
 - Necesitas anexar filas a un CSV existente sin romper la cabecera
 - Quieres leer un CSV como lista de dicts
-
-### Instalación
-
-Copia el archivo a `utils/` de tu proyecto:
-
-```bash
-cp /workspace/utilidades_python/utils/csv_writer.py mi_proyecto/utils/
-```
-
-No tiene dependencias externas. Solo stdlib (`csv`, `os`).
 
 ### API mínima (cubre el 80% de los casos)
 
@@ -132,12 +203,6 @@ for fila in filas:
 - Quieres un sistema de trazas simple (inicio, fin, eventos) sin overhead de logging de Python
 - Cualquier escritura/append de fichero de texto
 
-### Instalación
-
-```bash
-cp /workspace/utilidades_python/utils/text_writer.py mi_proyecto/utils/
-```
-
 ### API mínima
 
 ```python
@@ -213,12 +278,6 @@ Resultado en `/logs/cron_2026-07-10.log`:
 - Cachear respuestas de APIs externas
 - Generar ficheros de configuración editables a mano
 - Cualquier JSON que se lea y modifique repetidamente
-
-### Instalación
-
-```bash
-cp /workspace/utilidades_python/utils/json_writer.py mi_proyecto/utils/
-```
 
 ### API mínima
 
@@ -311,19 +370,23 @@ w.append([{"ts": "2026-07-10", "evt": "y"}])
 - Proyectos con múltiples canales de notificación (email, log, BBDD) y quieres una fuente única
 - Necesitas trazabilidad: agrupar errores por día, contar tipos, etc.
 
-### Instalación
-
-```bash
-cp /workspace/utilidades_python/utils/error_system.py mi_proyecto/utils/
-```
-
-Requiere también `json_writer.py` y `text_writer.py` (los importa).
+> **Dependencia:** requiere `json_writer.py` (lo importa). Recuerda copiar
+> ambos. El log de control (`envio_control`) usa stdlib `logging`. Ver
+> [Dependencias entre utilidades](#dependencias-entre-utilidades).
 
 ### Configuración (.env)
 
 ```bash
+# Errores → JSON (un fichero por llamada a registrar_errores)
 CARPETA_ERRORES=/var/log/mi_proyecto/errores
-RUTA_CONTROL=/var/log/mi_proyecto/control.txt
+
+# Log de control (envio_control) — stdlib logging + TimedRotatingFileHandler
+RUTA_CONTROL=/var/log/mi_proyecto/control.log
+LOG_NIVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
+LOG_ROTACION_DIAS=15          # rota el log cada 15 días
+LOG_BACKUPS=4                 # conserva 4 ficheros (~60 días ≈ 2 meses)
+LOG_FMT=%(asctime)s | %(levelname)s | %(message)s
+LOG_CONSOLE=0                 # 1 → también emite a stderr
 ```
 
 ### API mínima
@@ -390,9 +453,15 @@ ruta = registrar_errores(
 )
 # ruta → "/var/log/.../errores/errores_20260710_120000.json" o None si no había nada
 
-# trazas de control (logs de ejecución)
-envio_control("inicio")            # append a RUTA_CONTROL
+# trazas de control (log de ejecución, stdlib logging + rotación temporal)
+# config centralizada por env vars (RUTA_CONTROL, LOG_NIVEL, ...). Una línea por traza.
+envio_control("inicio")                       # nivel INFO (default)
+envio_control("detalle", nivel="DEBUG")        # se descarta si LOG_NIVEL=INFO
+envio_control("fallo", nivel="ERROR")         # se escribe si LOG_NIVEL <= ERROR
 envio_control("fin")
+# formato de línea (default LOG_FMT):
+#   2026-07-16 09:30:00,123 | INFO | inicio
+# rotación automática cada LOG_ROTACION_DIAS (default 15), reteniendo LOG_BACKUPS (default 4) ≈ 2 meses
 ```
 
 ### Ejemplo real: scraper con notificación
@@ -481,6 +550,9 @@ if "stop" in fdatos_keys_errores(errores, "tipo"):
 - **Confundir `tipo="aviso"` con `tipo="info"`** → `aviso` = algo va mal pero el proceso sigue. `stop` = no se puede continuar. `info` = anotación que quieres que se notifique igual. Los tres producen JSON, pero el daemon puede tratarlos distinto.
 - **No usar `contexto`** → el campo `contexto` está ahí para que el daemon no tenga que adivinar. Si tu error es "fallo en jornada 12", pon `contexto={"jornada": 12}`.
 - **Llamar `registrar_errores` con la lista vacía** → devuelve `None` sin escribir nada. Útil para no generar ficheros inútiles, pero no confundas con error.
+- **Parser antiguo de `control.txt`** (migración 2.0.0) → las líneas ahora llevan timestamp y nivel (`2026-07-16 09:30:00,123 | INFO | msg`). Adapta los parsers que leían el texto plano. La llamada `envio_control("texto")` sigue funcionando sin cambios.
+- **Cambiar `LOG_NIVEL` en caliente** → `envio_control` reaplica el nivel en cada llamada, pero los handlers se crean una sola vez (ruta, formato y rotación se fijan en la primera traza). Para cambiar esos, reinicia el proceso.
+- **`LOG_BACKUPS` insuficiente para retención larga** → 15 días × 4 ≈ 2 meses. Sube `LOG_BACKUPS` o `LOG_ROTACION_DIAS` si necesitas más histórico.
 
 ---
 
@@ -775,7 +847,7 @@ Destino: /home/user/work/mi_app/utils
   archivo           origen      destino     estado
   ------------------------------------------------
   csv_writer.py     1.0.0       1.0.0       OK
-  error_system.py   1.0.0       —           FALTA_EN_DESTINO
+  error_system.py   2.0.0       —           FALTA_EN_DESTINO
   json_writer.py    1.0.0       0.9.0       DESACTUALIZADO
   text_writer.py    1.0.1       1.0.0       DESACTUALIZADO
   time_utils.py     1.0.0       1.0.0       OK
