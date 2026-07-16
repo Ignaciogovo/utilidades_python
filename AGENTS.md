@@ -1,14 +1,44 @@
 # AGENTS.md
 
 ## Contexto del proyecto
-Este proyecto está orientado a realizar utilidades en python simples y genericas
 
+Repositorio raíz de utilidades Python reutilizables, pensadas para **copiarse
+archivo a archivo** en otros proyectos personales (no es un paquete instalable).
+
+**Dónde está cada cosa:**
+- `utils/` → las utilidades. Cada `.py` es autocontenido, solo usa stdlib,
+  y se importa como `from utils.nombre import ...`.
+- `utils/GUIA_IA.md` → referencia rápida de la API de cada utilidad y catálogo
+  de módulos. **Debe estar siempre actualizada**: la IA la usa para entender
+  las utilidades sin leer cada `.py`. Cualquier cambio en un archivo de
+  `utils/` debe reflejarse aquí.
+- `TUTORIAL.md` → guía de implementación para el usuario (instalación, API
+  completa, ejemplos reales, errores comunes). **Debe estar siempre
+  actualizada** cuando cambie el comportamiento o la API pública.
+- `README.md` → overview + 8 pasos para empezar + schema + changelog.
+- `envio_correo_docker/` → Dockerfile + doc.txt para `enviar_correo`.
+
+Convenciones al tocar un `.py` de `utils/` (no romperlas):
+- Cabecera estándar: `# utilidades-python:nombre` + `# __version__ = "X.Y.Z"`.
+  `check_updates` lee esta cabecera → al cambiar comportamiento, bump de versión.
+- Solo stdlib, sin dependencias externas (mantener portable).
+- Configuración por env vars cuando aplique, no args del CLI salvo `check_updates`.
+- Debe tener un **self-check ejecutable**: `python -m utils.nombre`.
+  Correrlo antes de cerrar cualquier cambio en la utilidad.
+- No quitar la cabecera ni el `# __version__`.
+
+Env vars que usan las utilidades: `CARPETA_ERRORES`
+(`error_system`); `RUTA_CONTROL`, `LOG_NIVEL`, `LOG_ROTACION_DIAS`,
+`LOG_BACKUPS`, `LOG_FMT`, `LOG_CONSOLE` (`error_system` — log de control,
+vía stdlib `logging` + `TimedRotatingFileHandler`); `EMISOR_CORREO`,
+`PASS_CORREO`, `RECEPTOR_CORREO`, `ASUNTO`, `TEXTO`, `SMTP_HOST`,
+`SMTP_PORT` (`enviar_correo`).
 ---
 
 ## 1. Flujo de Trabajo por Fases
 
 ### Estructura de Ramas
-- `master` → producción estable
+- `main` → producción estable
 - `develop` → integración de fases completadas
 - `feature/fase-X-descripcion` → desarrollo de cada fase
 
