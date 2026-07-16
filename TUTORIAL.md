@@ -4,6 +4,7 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 
 Índice:
 
+- [Diccionario de variables de entorno](#diccionario-de-variables-de-entorno)
 - [Instalación, actualización y verificación](#instalación-actualización-y-verificación)
 - [csv_writer.py](#csv_writerpy)
 - [text_writer.py](#text_writerpy)
@@ -12,6 +13,50 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 - [time_utils.py](#time_utilspy)
 - [enviar_correo.py](#enviar_correopy)
 - [check_updates.py](#check_updatespy)
+
+---
+
+## Diccionario de variables de entorno
+
+Solo `error_system` y `enviar_correo` usan env vars. El resto (`csv_writer`,
+`text_writer`, `json_writer`, `time_utils`, `check_updates`) son stdlib puro
+sin configuración por entorno. Cada bloque es **copia-pega a `.env`**; los
+valores mostrados son los defaults (sustituye por los tuyos).
+
+### `error_system`
+
+```bash
+# Carpeta destino de los JSON de notificaciones (uno por cada registrar_errores)
+CARPETA_ERRORES=./notificaciones/
+# Fichero de log activo; los rotated (TimedRotatingFileHandler) viven junto a este
+RUTA_CONTROL=./logs/control.log
+# Nivel mínimo: DEBUG | INFO | WARNING | ERROR | CRITICAL
+LOG_NIVEL=INFO
+# Días entre rotaciones · Nº de backups retenidos (retención ≈ días × backups)
+LOG_ROTACION_DIAS=15
+LOG_BACKUPS=4
+# Formato de línea (sintaxis logging.Formatter)
+LOG_FMT=%(asctime)s | %(levelname)s | %(message)s
+# 1 → emitir también a stderr · 0 → solo fichero
+LOG_CONSOLE=0
+```
+
+### `enviar_correo`
+
+```bash
+# Remitente (cuenta Gmail completa) · Obligatorio
+EMISOR_CORREO=tu_correo@gmail.com
+# App password de Google (16 chars, NO la password normal). Genera una en myaccount.google.com/apppasswords · Obligatorio
+PASS_CORREO=tu_app_password
+# Destinatarios separados por coma · Obligatorio
+RECEPTOR_CORREO=dest1@x.com,dest2@x.com
+# Asunto y cuerpo por defecto (sobreescribibles en cada enviar())
+ASUNTO=UPS ALERTA
+TEXTO=
+# SMTP host:port · 587=STARTTLS · 465=SMTPS implícito
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+```
 
 ---
 
@@ -378,16 +423,21 @@ w.append([{"ts": "2026-07-10", "evt": "y"}])
 
 ```bash
 # Errores → JSON (un fichero por llamada a registrar_errores)
-CARPETA_ERRORES=/var/log/mi_proyecto/errores
+CARPETA_ERRORES=/var/log/mi_proyecto/notificaciones
 
 # Log de control (envio_control) — stdlib logging + TimedRotatingFileHandler
-RUTA_CONTROL=/var/log/mi_proyecto/control.log
+RUTA_CONTROL=/var/log/mi_proyecto/logs/control.log
 LOG_NIVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
 LOG_ROTACION_DIAS=15          # rota el log cada 15 días
 LOG_BACKUPS=4                 # conserva 4 ficheros (~60 días ≈ 2 meses)
 LOG_FMT=%(asctime)s | %(levelname)s | %(message)s
 LOG_CONSOLE=0                 # 1 → también emite a stderr
 ```
+
+> **Defaults sin .env (2.1.0+):** si no seteas nada, los JSON caen en
+> `./notificaciones/` y el log de control (activo + backups rotated) en
+> `./logs/control.log`. Las carpetas se crean solas. Setea las env vars solo
+> si quieres otra ubicación.
 
 ### API mínima
 
@@ -449,9 +499,9 @@ ruta = registrar_errores(
     sistema={"email": True, "log": True, "bbdd": False},
     errores=errores,
     origen="mi_proyecto",          # aparece en el JSON, útil para el daemon
-    carpeta=None,                  # None = usa env CARPETA_ERRORES o "./errores/"
+    carpeta=None,                  # None = usa env CARPETA_ERRORES o "./notificaciones/"
 )
-# ruta → "/var/log/.../errores/errores_20260710_120000.json" o None si no había nada
+# ruta → "/var/log/.../notificaciones/errores_20260710_120000.json" o None si no había nada
 
 # trazas de control (log de ejecución, stdlib logging + rotación temporal)
 # config centralizada por env vars (RUTA_CONTROL, LOG_NIVEL, ...). Una línea por traza.
@@ -738,7 +788,7 @@ from utils.json_writer import JsonFileWriter
 
 load_dotenv()
 
-CARPETA_ERRORES = os.getenv("CARPETA_ERRORES", "./errores/")
+CARPETA_ERRORES = os.getenv("CARPETA_ERRORES", "./notificaciones/")
 
 def procesar_errero(ruta_json: str, m: EmailWriter) -> None:
     payload = JsonFileWriter(ruta_json).read()

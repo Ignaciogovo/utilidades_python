@@ -1,6 +1,6 @@
 # utilidades-python:error_system
 # Descripción: Sistema unificado de gestión de errores y logs (validación + registro + consulta + trazas de control)
-# __version__ = "2.0.0"
+# __version__ = "2.1.0"
 #
 # Este módulo NO envía correos ni escribe en BBDD. Solo produce ficheros JSON
 # con la lista de errores filtrados según el sistema de notificaciones activo.
@@ -8,10 +8,12 @@
 # enviar el correo / log / insertar en BBDD según corresponda.
 #
 # Configuración de ERRORES (variables de entorno):
-#   CARPETA_ERRORES  → ruta donde se escriben los JSON de errores. Default: "./errores/"
+#   CARPETA_ERRORES  → ruta donde se escriben los JSON de errores. Default: "./notificaciones/"
 #
 # Configuración de LOG (trazas de control, vía envio_control, respaldado por stdlib logging):
-#   RUTA_CONTROL         → ruta del fichero de log. Default: "./control.log"
+#   RUTA_CONTROL         → ruta del fichero de log. Default: "./logs/control.log"
+#                          Los ficheros rotated por TimedRotatingFileHandler viven en la
+#                          misma carpeta (./logs/).
 #   LOG_NIVEL            → DEBUG|INFO|WARNING|ERROR|CRITICAL. Filtra lo que se emite. Default: "INFO"
 #   LOG_ROTACION_DIAS    → días entre rotaciones (TimedRotatingFileHandler when='D'). Default: "15"
 #   LOG_BACKUPS          → nº de ficheros rotated a conservar. 4 × 15 días ≈ 60 días ≈ 2 meses. Default: "4"
@@ -89,7 +91,7 @@ def _get_logger() -> logging.Logger:
         logger.setLevel(_resolve_nivel())
         return logger
 
-    ruta = os.getenv("RUTA_CONTROL", "./control.log")
+    ruta = os.getenv("RUTA_CONTROL", "./logs/control.log")
     parent = os.path.dirname(ruta)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -217,7 +219,7 @@ def registrar_errores(
         sistema: dict con flags de canales activos, p.ej. {"email": True, "log": True, "bbdd": False}
         errores: lista de dicts de error (típicamente creados con nuevo_error())
         origen: nombre del proyecto o proceso (para trazabilidad en el JSON)
-        carpeta: ruta de destino. Si None, usa env var CARPETA_ERRORES o "./errores/"
+        carpeta: ruta de destino. Si None, usa env var CARPETA_ERRORES o "./notificaciones/"
 
     Returns:
         Ruta del JSON escrito, o None si no había errores que registrar.
@@ -236,7 +238,7 @@ def registrar_errores(
     if not errores_filtrados:
         return None
 
-    carpeta_destino = carpeta or os.getenv("CARPETA_ERRORES", "./errores/")
+    carpeta_destino = carpeta or os.getenv("CARPETA_ERRORES", "./notificaciones/")
     os.makedirs(carpeta_destino, exist_ok=True)
     ruta = os.path.join(carpeta_destino, _nombre_fichero_errores())
 
@@ -359,4 +361,4 @@ if __name__ == "__main__":
             else:
                 os.environ[k] = v
 
-    print("error_system v2.0.0 OK")
+    print("error_system v2.1.0 OK")

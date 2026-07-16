@@ -19,7 +19,7 @@ las use en un proyecto que ya las tenga copiadas en su propio `utils/`.
 | `csv_writer` | 1.0.0 | `CSVWriter`, `exportar_csv` | Leer/escribir CSV con cabecera y modo (`sobrescribir`/`anexar`) |
 | `text_writer` | 1.0.1 | `TextFileWriter` | Texto plano con append limpio (sin `\n` espurio en archivo nuevo) |
 | `json_writer` | 1.0.0 | `JsonFileWriter` | JSON con creación de carpetas padre y `append` dict/list |
-| `error_system` | 2.0.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1) y trazas de control (log stdlib con rotación temporal) |
+| `error_system` | 2.1.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1) y trazas de control (log stdlib con rotación temporal) |
 | `time_utils` | 1.0.0 | `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida` | Fechas `YYYYMMDD` (compacto) ↔ `date` y validación |
 | `enviar_correo` | 1.0.0 | `EmailWriter` | SMTP con STARTTLS, texto/HTML, context manager, config por env vars |
 | `check_updates` | 1.0.0 | (CLI) `python utils/check_updates.py <origen> <destino>` | Detectar actualizaciones entre repos |
@@ -100,7 +100,7 @@ ruta = registrar_errores(
     sistema={"email": True, "log": True, "bbdd": False},
     errores=[err1, err2],
     origen="mi_proyecto",
-    carpeta=None,          # None → env CARPETA_ERRORES o "./errores/"
+    carpeta=None,          # None → env CARPETA_ERRORES o "./notificaciones/"
 )                          # → "/.../errores_20260710_120000.json" o None
 
 # trazas (log de control, stdlib logging + TimedRotatingFileHandler)
@@ -123,6 +123,12 @@ envio_control("fallo grave", nivel="ERROR")      # se escribe si LOG_NIVEL <= ER
 - Configuración nueva (opcional): `LOG_NIVEL`, `LOG_ROTACION_DIAS`, `LOG_BACKUPS`, `LOG_FMT`, `LOG_CONSOLE`.
 - `text_writer.py` ya no lo importa `error_system` (sigue siendo válida por sí sola).
 - El schema JSON de errores y el resto de funciones no cambian.
+
+#### Migración 2.0.0 → 2.1.0 (defaults de rutas)
+
+- Solo cambian los defaults de `RUTA_CONTROL` (`./control.log` → `./logs/control.log`) y `CARPETA_ERRORES` (`./errores/` → `./notificaciones/`). Los nombres de las env vars no cambian.
+- Los ficheros rotated por `TimedRotatingFileHandler` viven junto al activo (en `./logs/`).
+- Si ya tenías `.env` con `RUTA_CONTROL` o `CARPETA_ERRORES` seteados, no te afecta: tus valores siguen ganando. Si los dejabas sin setear, los JSON y logs ahora caerán en `./notificaciones/` y `./logs/` respectivamente (carpetas se autosecrean).
 
 ### `time_utils`
 
@@ -178,8 +184,8 @@ Salida: tabla con estados `OK` / `DESACTUALIZADO` / `FALTA_EN_DESTINO` / `MAS_NU
 
 | Variable | Usada por | Default | Notas |
 |---|---|---|---|
-| `CARPETA_ERRORES` | `error_system` | `./errores/` | Carpeta destino de los JSON de errores |
-| `RUTA_CONTROL` | `error_system` (log) | `./control.log` | Fichero de log de control (TimedRotatingFileHandler) |
+| `CARPETA_ERRORES` | `error_system` | `./notificaciones/` | Carpeta destino de los JSON de errores |
+| `RUTA_CONTROL` | `error_system` (log) | `./logs/control.log` | Fichero de log de control (TimedRotatingFileHandler). Los ficheros rotated viven en el mismo dir |
 | `LOG_NIVEL` | `error_system` (log) | `INFO` | `DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL` — filtra lo que se emite |
 | `LOG_ROTACION_DIAS` | `error_system` (log) | `15` | Días entre rotaciones |
 | `LOG_BACKUPS` | `error_system` (log) | `4` | Nº de ficheros rotated conservados (15×4 ≈ 2 meses) |
