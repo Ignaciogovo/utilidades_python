@@ -19,9 +19,10 @@ las use en un proyecto que ya las tenga copiadas en su propio `utils/`.
 | `csv_writer` | 1.0.0 | `CSVWriter`, `exportar_csv` | Leer/escribir CSV con cabecera y modo (`sobrescribir`/`anexar`) |
 | `text_writer` | 1.0.1 | `TextFileWriter` | Texto plano con append limpio (sin `\n` espurio en archivo nuevo) |
 | `json_writer` | 1.0.0 | `JsonFileWriter` | JSON con creación de carpetas padre y `append` dict/list |
-| `error_system` | 2.1.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1) y trazas de control (log stdlib con rotación temporal) |
+| `error_system` | 2.2.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control (log stdlib con rotación temporal) |
 | `time_utils` | 1.0.0 | `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida` | Fechas `YYYYMMDD` (compacto) ↔ `date` y validación |
 | `enviar_correo` | 1.0.0 | `EmailWriter` | SMTP con STARTTLS, texto/HTML, context manager, config por env vars |
+| `enviar_notificaciones` | 1.0.0 | `procesar()` | One-shot: despacha JSONs de error_system por correo, los mueve a enviados/ y los borra tras 24h |
 | `check_updates` | 1.0.0 | (CLI) `python utils/check_updates.py <origen> <destino>` | Detectar actualizaciones entre repos |
 
 ## API mínima por utilidad
@@ -70,7 +71,7 @@ w.read()                                      # dict/list o None si no existe
 
 ```python
 from utils.error_system import (
-    nuevo_error,           # fabrica un dict de error (schema v1)
+    nuevo_error,           # fabrica un dict de error (schema v1.1)
     validar_error,         # bool
     fdatos_keys_errores,   # extrae una clave de cada error
     registrar_errores,     # filtra y escribe JSON (1 fichero por timestamp)
@@ -87,6 +88,8 @@ err = nuevo_error(
     notificar_log=True,
     notificar_bbdd=False,
     contexto={"fichero": "x.csv"},
+    from_email="app@x.com",  # opcional (v1.1); lo usa enviar_notificaciones si presente
+    to_email="devs@x.com",   # opcional (v1.1); si no, daemon cae a EMAIL_GENERICO
 )
 
 # validar
@@ -121,14 +124,21 @@ envio_control("fallo grave", nivel="ERROR")      # se escribe si LOG_NIVEL <= ER
 - `RUTA_CONTROL` ahora apunta a `control.log` (antes `control.txt`); el logger crea uno nuevo. Conserva el histórico renombrando a mano si lo necesitas.
 - Las líneas ahora llevan `2026-07-16 09:30:00,123 | INFO | <texto>` — adapta parsers externos con `line.split("|", 2)`.
 - Configuración nueva (opcional): `LOG_NIVEL`, `LOG_ROTACION_DIAS`, `LOG_BACKUPS`, `LOG_FMT`, `LOG_CONSOLE`.
-- `text_writer.py` ya no lo importa `error_system` (sigue siendo válida por sí sola).
-- El schema JSON de errores y el resto de funciones no cambian.
+
 
 #### Migración 2.0.0 → 2.1.0 (defaults de rutas)
 
 - Solo cambian los defaults de `RUTA_CONTROL` (`./control.log` → `./logs/control.log`) y `CARPETA_ERRORES` (`./errores/` → `./notificaciones/`). Los nombres de las env vars no cambian.
 - Los ficheros rotated por `TimedRotatingFileHandler` viven junto al activo (en `./logs/`).
 - Si ya tenías `.env` con `RUTA_CONTROL` o `CARPETA_ERRORES` seteados, no te afecta: tus valores siguen ganando. Si los dejabas sin setear, los JSON y logs ahora caerán en `./notificaciones/` y `./logs/` respectivamente (carpetas se autosecrean).
+
+#### Migración 2.1.0 → 2.2.0 (schema v1.1 + `PROYECTO`)
+
+- Cambios no breaking. Backward compatible con JSONs legacy.
+- `registrar_errores(origen=None)` ahora cae a `os.getenv("PROYECTO", "desconocido")`. Antes era siempre literal `"desconocido"`. Pasar origen explícito sigue ganando.
+- `nuevo_error(...)` gana `from_email` y `to_email` opciones (CSV). Solo se añaden al dict del error si se pasan (`None` por defecto). `validar_error` no las exige.
+- `enviar_notificaciones` (v1.0.0) las consume si presentes: si un error trae `to_email`, ese es el destinatario; si no, cae a env var `EMAIL_GENERICO`.
+- Setea `PROYECTO` en tu `.env` con el nombre de tu proyecto (lo verás en el campo `origen` de cada JSON).
 
 ### `time_utils`
 
@@ -172,6 +182,20 @@ m.cerrar()
 
 Levanta `ValueError` si `conectar()` se llama sin `EMISOR_CORREO`/`PASS_CORREO`/`RECEPTOR_CORREO`. Levanta `RuntimeError` si `enviar()` se llama antes de `conectar()`.
 
+### `enviar_notificaciones`
+
+```python
+from utils.enviar_notificaciones import procesar
+
+# Una pasada: borra viejos de ENVIADOS_DIR (> RETENCION_HORAS), lee
+# CARPETA_ERRORES/errores_*.json, envía los notificacion.email=True y los
+# mueve a ENVIADOS_DIR. Sin pendientes → sale sin abrir SMTP.
+res = procesar()  # {"borrados": int, "ficheros": int, "enviados": int,
+                  #  "fallidos": int, "sin_dest": int}
+```
+
+Trazas via `envio_control` (hereda `RUTA_CONTROL`, `LOG_NIVEL`, ...). Self-check sin red (stub de `EmailWriter`). Pensado para cron/systemd (one-shot, sin bucle).
+
 ### `check_updates` (CLI, no importable)
 
 ```bash
@@ -184,20 +208,24 @@ Salida: tabla con estados `OK` / `DESACTUALIZADO` / `FALTA_EN_DESTINO` / `MAS_NU
 
 | Variable | Usada por | Default | Notas |
 |---|---|---|---|
-| `CARPETA_ERRORES` | `error_system` | `./notificaciones/` | Carpeta destino de los JSON de errores |
+| `CARPETA_ERRORES` | `error_system`, `enviar_notificaciones` | `./notificaciones/` | Carpeta de JSON pendientes. El daemon la lee |
+| `PROYECTO` | `error_system` | `desconocido` | Default de `origen` en `registrar_errores` si no se pasa explícito |
 | `RUTA_CONTROL` | `error_system` (log) | `./logs/control.log` | Fichero de log de control (TimedRotatingFileHandler). Los ficheros rotated viven en el mismo dir |
 | `LOG_NIVEL` | `error_system` (log) | `INFO` | `DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL` — filtra lo que se emite |
 | `LOG_ROTACION_DIAS` | `error_system` (log) | `15` | Días entre rotaciones |
 | `LOG_BACKUPS` | `error_system` (log) | `4` | Nº de ficheros rotated conservados (15×4 ≈ 2 meses) |
 | `LOG_FMT` | `error_system` (log) | `%(asctime)s \| %(levelname)s \| %(message)s` | Formato de línea (logging.Formatter) |
 | `LOG_CONSOLE` | `error_system` (log) | `0` | `1` → emitir también a stderr |
-| `EMISOR_CORREO` | `enviar_correo` | — | Remitente (obligatorio) |
-| `PASS_CORREO` | `enviar_correo` | — | App password de Gmail (obligatorio) |
-| `RECEPTOR_CORREO` | `enviar_correo` | — | CSV de destinatarios (obligatorio) |
-| `ASUNTO` | `enviar_correo` | `UPS ALERTA` | Subject por defecto |
-| `TEXTO` | `enviar_correo` | `""` | Cuerpo por defecto |
-| `SMTP_HOST` | `enviar_correo` | `smtp.gmail.com` | Servidor SMTP |
-| `SMTP_PORT` | `enviar_correo` | `587` | Puerto STARTTLS |
+| `ENVIADOS_DIR` | `enviar_notificaciones` | `<CARPETA_ERRORES>/enviados` | Subcarpeta destino tras procesar un JSON |
+| `RETENCION_HORAS` | `enviar_notificaciones` | `24` | Horas mínimas en `ENVIADOS_DIR` antes de borrar |
+| `EMAIL_GENERICO` | `enviar_notificaciones` | — | `To` por defecto si un error no trae `to_email` (CSV) |
+| `EMISOR_CORREO` | `enviar_correo`, `enviar_notificaciones` | — | Remitente SMTP (obligatorio) |
+| `PASS_CORREO` | `enviar_correo`, `enviar_notificaciones` | — | App password de Gmail (obligatorio) |
+| `RECEPTOR_CORREO` | `enviar_correo` | — | CSV de destinatarios (obligatorio para `EmailWriter` directo; el daemon ignora este y usa por-error `to_email`/`EMAIL_GENERICO`) |
+| `ASUNTO` | `enviar_correo` | `UPS ALERTA` | Subject por defecto (el daemon siempre lo pasa explícito) |
+| `TEXTO` | `enviar_correo` | `""` | Cuerpo por defecto (el daemon siempre lo pasa explícito) |
+| `SMTP_HOST` | `enviar_correo`, `enviar_notificaciones` | `smtp.gmail.com` | Servidor SMTP |
+| `SMTP_PORT` | `enviar_correo`, `enviar_notificaciones` | `587` | Puerto STARTTLS |
 
 ## Patrones de uso frecuentes
 
@@ -231,40 +259,29 @@ if errores:
     registrar_errores(SISTEMA, errores, origen="scraper_v1")
 ```
 
-### 2. Daemon que consume los JSON de errores y los envía por email
+### 2. Daemon que despacha JSONs de error_system por email
+
+Ya está implementado en `utils/enviar_notificaciones.py` (one-shot para cron):
+
+```bash
+# .env: EMISOR_CORREO, PASS_CORREO, EMAIL_GENERICO, PROYECTO, SMTP_HOST/PORT,
+#       CARPETA_ERRORES (default ./notificaciones/), opcional ENVIADOS_DIR,
+#       RETENCION_HORAS (default 24).
+python -m utils.enviar_notificaciones
+# o    python utils/enviar_notificaciones.py
+```
 
 ```python
-import glob, os, time
-from utils.enviar_correo import EmailWriter
-from utils.json_writer import JsonFileWriter
-from utils.error_system import SCHEMA_VERSION, validar_error
-
-def procesar(ruta: str, m: EmailWriter) -> None:
-    payload = JsonFileWriter(ruta).read()
-    if not payload or payload.get("schema_version") != SCHEMA_VERSION:
-        return
-    for err in payload.get("errores", []):
-        if not validar_error(err):
-            continue
-        if not err.get("notificacion", {}).get("email"):
-            continue
-        m.enviar(
-            asunto=f"[{payload.get('origen')}] {err['tipo']}: {err['texto'][:50]}",
-            cuerpo=f"{err['texto']}\n\nContexto: {err.get('contexto')}",
-        )
-    os.remove(ruta)
-
-def main():
-    with EmailWriter() as m:
-        m.conectar()
-        while True:
-            for ruta in glob.glob("./errores/errores_*.json"):
-                try:
-                    procesar(ruta, m)
-                except Exception as e:
-                    print(f"fallo procesando {ruta}: {e}")
-            time.sleep(60)
+from utils.enviar_notificaciones import procesar
+res = procesar()   # una pasada; mira el resumen {borrados, ficheros, enviados, ...}
 ```
+
+Cada pasada: borra viejos de `ENVIADOS_DIR` (>24h), lee `CARPETA_ERRORES/errores_*.json`,
+envía los `notificacion.email=True` (To: `to_email` del error o `EMAIL_GENERICO`),
+y mueve el JSON a `enviados/`. Cron lo relanza cada N minutos.
+
+Custom-roll tu propio daemon solo si necesitas algo NO cubierto (reintentos con
+backoff, envío por BBDD, multiplexado por proyecto, etc.). El script mide ~150 líneas.
 
 ### 3. Estado persistente entre ejecuciones
 

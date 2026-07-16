@@ -12,22 +12,26 @@ Guía detallada, una sección por archivo `.py`, con ejemplos prácticos para ca
 - [error_system.py](#error_systempy)
 - [time_utils.py](#time_utilspy)
 - [enviar_correo.py](#enviar_correopy)
+- [enviar_notificaciones.py](#enviar_notificacionespy)
 - [check_updates.py](#check_updatespy)
 
 ---
 
 ## Diccionario de variables de entorno
 
-Solo `error_system` y `enviar_correo` usan env vars. El resto (`csv_writer`,
-`text_writer`, `json_writer`, `time_utils`, `check_updates`) son stdlib puro
-sin configuración por entorno. Cada bloque es **copia-pega a `.env`**; los
-valores mostrados son los defaults (sustituye por los tuyos).
+Solo `error_system`, `enviar_correo` y `enviar_notificaciones` usan env vars.
+El resto (`csv_writer`, `text_writer`, `json_writer`, `time_utils`,
+`check_updates`) son stdlib puro sin configuración por entorno. Cada bloque es
+**copia-pega a `.env`**; los valores mostrados son los defaults (sustituye por
+los tuyos).
 
 ### `error_system`
 
 ```bash
 # Carpeta destino de los JSON de notificaciones (uno por cada registrar_errores)
 CARPETA_ERRORES=./notificaciones/
+# Nombre del proyecto; default del campo `origen` si no pasas origen a registrar_errores
+PROYECTO=mi_proyecto
 # Fichero de log activo; los rotated (TimedRotatingFileHandler) viven junto a este
 RUTA_CONTROL=./logs/control.log
 # Nivel mínimo: DEBUG | INFO | WARNING | ERROR | CRITICAL
@@ -48,7 +52,7 @@ LOG_CONSOLE=0
 EMISOR_CORREO=tu_correo@gmail.com
 # App password de Google (16 chars, NO la password normal). Genera una en myaccount.google.com/apppasswords · Obligatorio
 PASS_CORREO=tu_app_password
-# Destinatarios separados por coma · Obligatorio
+# Destinatarios separados por coma · Obligatorio (para uso directo de EmailWriter)
 RECEPTOR_CORREO=dest1@x.com,dest2@x.com
 # Asunto y cuerpo por defecto (sobreescribibles en cada enviar())
 ASUNTO=UPS ALERTA
@@ -56,6 +60,22 @@ TEXTO=
 # SMTP host:port · 587=STARTTLS · 465=SMTPS implícito
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
+```
+
+### `enviar_notificaciones`
+
+```bash
+# Reutiliza SMTP: EMISOR_CORREO, PASS_CORREO, SMTP_HOST, SMTP_PORT de enviar_correo
+# Faltan creds → el daemon se queja y no procesa (verLogs en control.log).
+# EMAIL_GENERICO: To por defecto si un error no trae to_email · Obligatorio en prácticas
+EMAIL_GENERICO=alertas@midominio.com
+# Carpeta pendientes (mismo default que error_system). Lee los errores_*.json de aquí
+CARPETA_ERRORES=./notificaciones/
+# Subcarpeta destino tras procesar cada JSON (se crea sola)
+ENVIADOS_DIR=./notificaciones/enviados/
+# Horas mínimas en ENVIADOS_DIR antes de borrarse en la siguiente pasada
+RETENCION_HORAS=24
+# Log de control heredado de error_system (RUTA_CONTROL, LOG_NIVEL, ...)
 ```
 
 ---
@@ -91,6 +111,7 @@ interna:
 | Utilidad | Depende de | Notas |
 |---|---|---|
 | `error_system` | `json_writer` | Para escribir los JSON de errores. El log de control (`envio_control`) usa stdlib `logging`, no `text_writer`. |
+| `enviar_notificaciones` | `enviar_correo`, `json_writer`, `error_system` | Lee JSONs, despacha por SMTP y traza en el log de control. |
 | `csv_writer`, `text_writer`, `json_writer`, `time_utils`, `enviar_correo`, `check_updates` | — | Autocontenidas |
 
 Copia siempre las dependencias junto con la utilidad (en este caso,
@@ -425,6 +446,9 @@ w.append([{"ts": "2026-07-10", "evt": "y"}])
 # Errores → JSON (un fichero por llamada a registrar_errores)
 CARPETA_ERRORES=/var/log/mi_proyecto/notificaciones
 
+# Nombre del proyecto; default del campo `origen` del JSON si no pasas origen a registrar_errores
+PROYECTO=mi_proyecto
+
 # Log de control (envio_control) — stdlib logging + TimedRotatingFileHandler
 RUTA_CONTROL=/var/log/mi_proyecto/logs/control.log
 LOG_NIVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
@@ -467,16 +491,16 @@ if errores:
 
 ```python
 from utils.error_system import (
-    nuevo_error,        # fábrica de dicts
-    validar_error,      # valida contra schema v1
+    nuevo_error,        # fábrica de dicts (schema v1.1 desde 2.2.0)
+    validar_error,      # valida contra schema v1 (no exige campos v1.1 opcionales)
     fdatos_keys_errores, # extrae una clave de cada error
     registrar_errores,  # filtra y escribe JSON
     envio_control,      # trazas a fichero de control
-    SCHEMA_VERSION,
-    TIPOS_VALIDOS,
+    SCHEMA_VERSION,     # "1.0"
+    TIPOS_VALIDOS,      # ("aviso", "stop", "info")
 )
 
-# fabricar
+# fabricar (sin v1.1: como siempre)
 err = nuevo_error(
     tipo="stop",                      # "aviso" | "stop" | "info"
     texto="jornada incompleta",
@@ -485,6 +509,18 @@ err = nuevo_error(
     notificar_bbdd=False,
     contexto={"jornada": 12, "temporada": 2026},
 )
+
+# fabricar con destinatarios por error (v1.1, opcional). Si no pasas from_email/to_email
+# el dict del error NO lleva esas claves (backward compatible con JSONs legacy).
+err_dest = nuevo_error(
+    tipo="stop",
+    texto="no hay stock",
+    notificar_email=True,
+    contexto={"producto": "SKU-9"},
+    from_email="shop@midominio.com",  # opcional: From de este correo concreto
+    to_email="ops@midominio.com,oncall@midominio.com",  # opcional: To concreto (CSV)
+)
+# Sin estos campos, enviar_notificaciones cae a EMAIL_GENERICO (ver su sección).
 
 # validar (lanza excepción si quieres fallar fuerte)
 if not validar_error(err):
@@ -498,7 +534,8 @@ dias  = fdatos_keys_errores(errores, "dia")     # ["2026-07-10", ...]
 ruta = registrar_errores(
     sistema={"email": True, "log": True, "bbdd": False},
     errores=errores,
-    origen="mi_proyecto",          # aparece en el JSON, útil para el daemon
+    origen="mi_proyecto",          # aparece en el JSON. Si pasas None o lo omites,
+                                   # cae a env PROYECTO y, si no está, a "desconocido".
     carpeta=None,                  # None = usa env CARPETA_ERRORES o "./notificaciones/"
 )
 # ruta → "/var/log/.../notificaciones/errores_20260710_120000.json" o None si no había nada
@@ -860,6 +897,153 @@ Igual que antes, pero ahora `enviar_correo.py` también se puede importar como u
 - **Llamar `enviar()` antes de `conectar()`** → lanza `RuntimeError`. Siempre: `conectar()` → `enviar()` → `cerrar()` (o usa el `with`).
 - **Olvidar `cerrar()` sin context manager** → la conexión SMTP queda abierta. Usa `with EmailWriter() as m:` para evitarlo.
 - **Asumir que el subject es opcional** → siempre se asigna `mensaje["Subject"]`. Si no pasas `asunto`, se usa el de env (o `"UPS ALERTA"` por default).
+
+---
+
+## enviar_notificaciones.py
+
+### Cuándo copiarlo
+
+- Ya produces notificaciones con `error_system.registrar_errores` y quieres un
+  orquestador que las envíe por correo sin escribirlo tú
+- Quieres relanzar el envío desde cron o systemd sin gestionar estado en memoria
+- Necesitas un fallback para errores que el productor no supo a quién avisar
+  (`EMAIL_GENERICO`)
+
+> **Dependencia:** importa `enviar_correo.EmailWriter`, `json_writer.JsonFileWriter`
+> y `error_system.envio_control`. Copia los cuatro archivos juntos. Ver
+> [Dependencias entre utilidades](#dependencias-entre-utilidades).
+
+### Configuración (.env)
+
+```bash
+# Las credenciales SMTP las toma de enviar_correo (EMISOR_CORREO, PASS_CORREO,
+# SMTP_HOST, SMTP_PORT). Si no las seteas, el daemon se queja y no procesa.
+EMAIL_GENERICO=alertas@midominio.com         # To por defecto si un error no trae to_email
+CARPETA_ERRORES=./notificaciones/             # Donde están los errores_*.json pendientes
+ENVIADOS_DIR=./notificaciones/enviados/       # Tras procesar, los mueve aquí (se crea sola)
+RETENCION_HORAS=24                            # Horas en enviados/ antes de borrarse
+# Log: RUTA_CONTROL, LOG_NIVEL, ... (heredados de error_system)
+```
+
+### API mínima
+
+```bash
+# desde CLI
+python -m utils.enviar_notificaciones
+# o desde un script
+python utils/enviar_notificaciones.py
+```
+
+```python
+from utils.enviar_notificaciones import procesar
+
+res = procesar()
+# res = {"borrados": int, "ficheros": int, "enviados": int, "fallidos": int, "sin_dest": int}
+```
+
+### Qué hace una pasada (`procesar()`)
+
+1. **Limpieza previa.** Borra de `ENVIADOS_DIR` los `errores_*.json` con `mtime` más
+   viejo que `ahora - RETENCION_HORAS*3600`. Una syscall por fichero.
+2. **Sin pendientes → sale.** Si no hay `errores_*.json` en `CARPETA_ERRORES`, no
+   abre SMTP y devuelve un resumen con ceros.
+3. **Sin credenciales → se queja.** Si falta `EMISOR_CORREO` o `PASS_CORREO`,
+   loguea ERROR con `envio_control` y sale **sin mover** los pendientes (los deja
+   para la siguiente, cuanto tengas creds).
+4. **Conexión SMTP.** `with EmailWriter() as m: m.conectar()`.
+5. **Por cada fichero JSON** (orden alfabético):
+   - Lee el payload con `JsonFileWriter`. Si está corrupto o no se puede leer,
+     lo mueve a `ENVIADOS_DIR` igual (no dejamos basura pudriéndose en cola).
+   - Por cada `error` con `notificacion.email == True`:
+     - `To` = `error.to_email` (schema v1.1) si existe, si no `EMAIL_GENERICO`.
+       Si no hay ninguno → log WARNING, cuenta `sin_dest` y skip este error.
+     - `From` = `EMISOR_CORREO` (siempre; el login SMTP es el remitente).
+     - `Asunto` = `[<origen>] <TIPO>: <texto[:50]>`.
+     - `Cuerpo` = `[TIPO] texto\n\nOrigen: <origen>\nContexto: <contexto>`.
+     - `m.enviar(...)`. Si falla, log ERROR, cuenta `fallidos`, **continúa** con
+       el resto (un fallo de SMTP no aborta el lote).
+   - Mueve el fichero procesado a `ENVIADOS_DIR` con `shutil.move`.
+6. **Resume** con `envio_control`: `ficheros X, enviados Y, fallidos Z, sin_dest W`.
+
+### Ejemplo real: cron cada 5 minutos
+
+```cron
+# crontab -e
+*/5 * * * *  cd /app && /usr/bin/python -m utils.enviar_notificaciones
+```
+
+El script es one-shot, así que cron es el bucle. No hay señales que manejar, no
+hay estado en memoria. Si una pasada tarda más de 5 minutos, la siguiente se
+encola (cron ya lo gestiona). En systemd timer:
+
+```ini
+# /etc/systemd/system/enviar-notificaciones.service
+[Service]
+WorkingDirectory=/app
+ExecStart=/usr/bin/python -m utils.enviar_notificaciones
+EnvironmentFile=/app/.env
+
+# /etc/systemd/system/enviar-notificaciones.timer
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+```
+
+### Ejemplo real: productor + daemon en el mismo proyecto
+
+```python
+# productor.py — genera errores y los deja en ./notificaciones/
+from utils.error_system import nuevo_error, registrar_errores
+
+SISTEMA = {"email": True, "log": True, "bbdd": False}
+errores = []
+try:
+    # ... trabajo que puede fallar ...
+except Exception as e:
+    errores.append(nuevo_error(
+        tipo="stop", texto=f"caída de servicio: {e}",
+        notificar_email=True,
+        to_email="oncall@midominio.com",   # este avisa a oncall
+        contexto={"host": "prod-1"},
+    ))
+
+# este error NO lleva to_email; el daemon usará EMAIL_GENERICO
+errores.append(nuevo_error("aviso", "memoria al 90%", notificar_email=True,
+                           contexto={"host": "prod-1"}))
+
+if errores:
+    registrar_errores(SISTEMA, errores)   # origen cae a env PROYECTO
+```
+
+```bash
+# daemon (cron relanza cada 5 min)
+python -m utils.enviar_notificaciones
+```
+
+### Errores comunes
+
+- **Olvidar `EMAIL_GENERICO`** → los errores sin `to_email` (la mayoría si no
+  los personalizas) se cuentan como `sin_dest` y no se envían. Setea la env var
+  con una dirección de ops/alertas genérica del proyecto.
+- **Confundir `RECEPTOR_CORREO` con `EMAIL_GENERICO`** → `RECEPTOR_CORREO` lo
+  usa `EmailWriter` directamente (un solo correo a todos). El daemon lo ignora:
+  usa por-error `to_email` y cae a `EMAIL_GENERICO`. Setea `EMAIL_GENERICO`
+  para el daemon, no `RECEPTOR_CORREO`.
+- **Esperar reintentos** → no hay. Un envío que falla se cuenta como `fallido`
+  y el JSON se mueve a `enviados/` igual. Si necesitas reintentos, bloquea el
+  move en `_procesar_fichero` o monta tu lógica aparte.
+- **Mover antes de confirmar el envío** → el daemon m pasa tras procesar el
+  fichero completo (haya fallado o no todos sus errores). Si el proceso muere
+  a mitad, el JSON se queda en pendientes y se reintentará entero en la siguiente
+  pasada (idempotente: el destinatario puede recibir duplicados).
+- **Poner `CARPETA_ERRORES` apuntando a `enviados/`** → loop. Setea una carpeta
+  pendientes y otra `ENVIADOS_DIR` distinta (los defaults ya lo hacen bien).
+- **Esperar que se borre nada en la primera pasada** → los ficheros recién
+  movidos a `enviados/` tienen `mtime = ahora`. Tienen que cumplir >24h antes
+  del borrado (siguiente pasada, un día después).
 
 ---
 
