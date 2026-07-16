@@ -1,6 +1,6 @@
 # utilidades-python:error_system
 # Descripción: Sistema unificado de gestión de errores y logs (validación + registro + consulta + trazas de control)
-# __version__ = "2.1.0"
+# __version__ = "2.2.0"
 #
 # Este módulo NO envía correos ni escribe en BBDD. Solo produce ficheros JSON
 # con la lista de errores filtrados según el sistema de notificaciones activo.
@@ -9,6 +9,8 @@
 #
 # Configuración de ERRORES (variables de entorno):
 #   CARPETA_ERRORES  → ruta donde se escriben los JSON de errores. Default: "./notificaciones/"
+#   PROYECTO         → nombre del proyecto/proceso. Default de `origen` en
+#                      registrar_errores() si no se pasa explícito. Default: "desconocido"
 #
 # Configuración de LOG (trazas de control, vía envio_control, respaldado por stdlib logging):
 #   RUTA_CONTROL         → ruta del fichero de log. Default: "./logs/control.log"
@@ -22,7 +24,9 @@
 #
 # API de log (una línea): envio_control("texto")  -> INFO;  envio_control("texto", nivel="ERROR")
 #
-# Schema JSON v1 que produce este módulo (ver validar_error para el contrato):
+# Schema JSON v1 que produce este módulo (ver validar_error para el contrato).
+# Schema v1.1 (error_system ≥2.2.0): añade claves opcionales `from_email` y `to_email`
+# a cada error (solo aparecen si se pasan a nuevo_error). validar_error no las exige.
 # {
 #   "schema_version": "1.0",
 #   "timestamp_creacion": "2026-07-10T09:30:00",
@@ -34,7 +38,9 @@
 #       "timestamp": "2026-07-10T09:25:00",
 #       "dia": "2026-07-10",
 #       "notificacion": {"email": true, "log": true, "bbdd": false},
-#       "contexto": {"cualquier_campo_extra": "..."}
+#       "contexto": {"cualquier_campo_extra": "..."},
+#       "from_email": "remitente@x.com",   # Opcional (v1.1). Default de EmailWriter/daemon.
+#       "to_email": "dest@x.com,dest2@x.com"# Opcional (v1.1). Default = EMAIL_GENERICO del daemon.
 #     }
 #   ]
 # }
@@ -159,20 +165,26 @@ def nuevo_error(
     notificar_log: bool = False,
     notificar_bbdd: bool = False,
     contexto: Optional[dict] = None,
+    from_email: Optional[str] = None,
+    to_email: Optional[str] = None,
 ) -> dict:
-    """Fabrica un dict de error con la forma del schema v1.
+    """Fabrica un dict de error con la forma del schema v1.1.
 
     Args:
         tipo: "aviso" | "stop" | "info"
         texto: descripción legible del error
         notificar_*: flags de canales de notificación
         contexto: dict libre con datos específicos del proyecto (jornada, temporada, etc.)
+        from_email: remitente por error (opcional, v1.1). El daemon lo usa si presente,
+                    si no, usa EMISOR_CORREO de env vars.
+        to_email: destinatarios por error (opcional, v1.1). CSV. El daemon lo usa si
+                  presente; si no, fallback a EMAIL_GENERICO.
 
     Returns:
-        dict con la estructura del schema v1
+        dict con la estructura del schema v1 (con claves v1.1 opcionales si se pasaron).
     """
     ahora = datetime.now()
-    return {
+    err = {
         "tipo": tipo,
         "texto": texto,
         "timestamp": ahora.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -184,6 +196,11 @@ def nuevo_error(
         },
         "contexto": contexto or {},
     }
+    if from_email is not None:
+        err["from_email"] = from_email
+    if to_email is not None:
+        err["to_email"] = to_email
+    return err
 
 
 def fdatos_keys_errores(lista_errores: list, de_key: str) -> list:
@@ -210,7 +227,7 @@ def _nombre_fichero_errores() -> str:
 def registrar_errores(
     sistema: dict,
     errores: list,
-    origen: str = "desconocido",
+    origen: Optional[str] = None,
     carpeta: Optional[str] = None,
 ) -> Optional[str]:
     """Filtra errores según el sistema activo y los escribe a un JSON.
@@ -218,7 +235,7 @@ def registrar_errores(
     Args:
         sistema: dict con flags de canales activos, p.ej. {"email": True, "log": True, "bbdd": False}
         errores: lista de dicts de error (típicamente creados con nuevo_error())
-        origen: nombre del proyecto o proceso (para trazabilidad en el JSON)
+        origen: nombre del proyecto o proceso. Si None, usa env var PROYECTO o "desconocido".
         carpeta: ruta de destino. Si None, usa env var CARPETA_ERRORES o "./notificaciones/"
 
     Returns:
@@ -226,6 +243,8 @@ def registrar_errores(
     """
     if not errores:
         return None
+
+    origen = origen or os.getenv("PROYECTO", "desconocido")
 
     errores_filtrados = []
     for err in errores:
@@ -261,7 +280,8 @@ if __name__ == "__main__":
         sistema = {"email": True, "log": True, "bbdd": False}
         errores = [
             nuevo_error("aviso", "fallo al escribir CSV", notificar_email=True, notificar_log=True, contexto={"fichero": "x.csv"}),
-            nuevo_error("stop", "jornada incompleta", notificar_email=True),
+            nuevo_error("stop", "jornada incompleta", notificar_email=True,
+                        from_email="app@proyecto.com", to_email="devs@proyecto.com"),
             nuevo_error("info", "proceso terminado", notificar_log=True),
             nuevo_error("info", "ignorado", notificar_email=False, notificar_log=False, notificar_bbdd=False),
             {"tipo": "invalido", "texto": "x", "timestamp": "t", "dia": "d"},
@@ -270,6 +290,13 @@ if __name__ == "__main__":
 
         assert validar_error(errores[0])
         assert not validar_error({"tipo": "malo", "texto": "x", "timestamp": "t", "dia": "d"})
+        # validar_error NO requiere los campos v1.1 opcionales (deben seguir siendo válidos)
+        assert validar_error(errores[1])
+        # nuevo_error solo añade from_email/to_email si se pasan (no deben aparecer en el resto)
+        assert "from_email" not in errores[0]
+        assert "to_email" not in errores[0]
+        assert errores[1]["from_email"] == "app@proyecto.com"
+        assert errores[1]["to_email"] == "devs@proyecto.com"
 
         tipos = fdatos_keys_errores(errores[:4], "tipo")
         assert tipos == ["aviso", "stop", "info", "info"], tipos
@@ -284,10 +311,38 @@ if __name__ == "__main__":
         assert len(payload["errores"]) == 3
         assert all(validar_error(e) for e in payload["errores"])
         assert payload["errores"][0]["contexto"] == {"fichero": "x.csv"}
+        # v1.1: from_email/to_email se conservan en el JSON
+        assert payload["errores"][1]["from_email"] == "app@proyecto.com"
+        assert payload["errores"][1]["to_email"] == "devs@proyecto.com"
+        assert "from_email" not in payload["errores"][0]
 
         assert registrar_errores(sistema, [], origen="vacio", carpeta=tmp) is None
         sistema_vacio = {"email": False, "log": False, "bbdd": False}
         assert registrar_errores(sistema_vacio, errores, origen="nada_activo", carpeta=tmp) is None
+
+    # --- origen default a PROYECTO env var (v2.2.0) ---
+    saved_proyecto = os.environ.get("PROYECTO")
+    try:
+        os.environ["PROYECTO"] = "mi_scraper_v2"
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = registrar_errores(sistema, [errores[0]], carpeta=tmp)  # origen=None
+            assert ruta is not None
+            payload = JsonFileWriter(ruta).read()
+            assert payload["origen"] == "mi_scraper_v2", payload["origen"]
+            # origen explícito gana sobre PROYECTO
+            ruta2 = registrar_errores(sistema, [errores[0]], origen="override", carpeta=tmp)
+            payload2 = JsonFileWriter(ruta2).read()
+            assert payload2["origen"] == "override"
+        os.environ.pop("PROYECTO", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = registrar_errores(sistema, [errores[0]], carpeta=tmp)  # sin PROYECTO ni origen
+            payload = JsonFileWriter(ruta).read()
+            assert payload["origen"] == "desconocido", payload["origen"]
+    finally:
+        if saved_proyecto is None:
+            os.environ.pop("PROYECTO", None)
+        else:
+            os.environ["PROYECTO"] = saved_proyecto
 
     # --- Tests de log (envio_control: timestamp, niveles, rotación, idempotencia) ---
     saved_env = {k: os.environ.get(k) for k in (
@@ -361,4 +416,4 @@ if __name__ == "__main__":
             else:
                 os.environ[k] = v
 
-    print("error_system v2.1.0 OK")
+    print("error_system v2.2.0 OK")
