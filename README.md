@@ -17,7 +17,7 @@ Todos los `.py` viven en `utils/`:
 | `utils/csv_writer.py` | 1.0.0 | Leer/escribir CSV con control de cabeceras y modos (`w`/`a`) | Siempre que escribas CSVs a fichero |
 | `utils/text_writer.py` | 1.0.1 | Leer/escribir ficheros de texto plano con append limpio (sin `\n` espurio en archivo nuevo) | Cuando necesites logs o `.txt` simples |
 | `utils/json_writer.py` | 1.0.0 | Leer/escribir JSON creando carpetas padre y con append dict/list | Cuando persistas estado o config en JSON |
-| `utils/error_system.py` | 2.2.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
+| `utils/error_system.py` | 2.2.1 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
 | `utils/time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
 | `utils/enviar_correo.py` | 1.0.0 | Envío de correo vía SMTP (Gmail por defecto) con soporte texto/HTML, lee de env vars | Cuando necesites enviar correo desde un script o un daemon |
 | `utils/enviar_notificaciones.py` | 1.0.0 | Daemon one-shot que despacha los JSON de `error_system` por correo y los archiva/borra | Cuando ya produzcas notificaciones JSON y quieras un orquestador que las envíe |
@@ -68,7 +68,7 @@ Este es el formato que produce `registrar_errores()` y que consumirá el daemon 
 
 El campo `contexto` es el punto de extensión: cada proyecto añade aquí sus datos específicos (jornada, temporada, partido, etc.) sin romper el schema.
 
-Cada llamada a `registrar_errores()` produce **un fichero por timestamp**: `errores_YYYYMMDD_HHMMSS.json` dentro de `CARPETA_ERRORES` (default `./notificaciones/`). El daemon los procesa y los puede borrar o archivar.
+Cada llamada a `registrar_errores()` produce **un fichero por timestamp**: `errores_YYYYMMDD_HHMMSS_ffffff.json` dentro de `CARPETA_ERRORES` (default `./notificaciones/`). El daemon los procesa y los puede borrar o archivar.
 
 ## Convención de versionado
 
@@ -81,6 +81,17 @@ SemVer simple:
 `check_updates.py` usa comparación numérica de tuplas: `tuple(int(x) for x in v.split("."))`. No valida que sea SemVer estricto, solo que el formato sea `X.Y.Z`.
 
 ## Changelog
+
+### 2.2.1 — `_nombre_fichero_errores` con microsegundos
+
+- `utils/error_system.py` **v2.2.1** (no breaking):
+  - `_nombre_fichero_errores()` ahora usa `%Y%m%d_%H%M%S_%f` en vez de `%Y%m%d_%H%M%S`.
+    Antes, dos `registrar_errores()` en el mismo segundo pisaban el mismo fichero
+    (mismo timestamp → mismo filename). Con microsegundos (`%f`, 6 dígitos) colisión
+    prácticamente imposible en práctica.
+  - Los JSONs existentes legacy (`errores_20260710_120000.json`) siguen siendo
+    legibles por `enviar_notificaciones` (el glob es `errores_*.json`).
+  - No se toca el schema ni la API.
 
 ### 2.2.0 — `enviar_notificaciones` + `error_system` v2.2.0
 

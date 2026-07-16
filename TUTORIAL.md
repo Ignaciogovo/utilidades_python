@@ -538,7 +538,7 @@ ruta = registrar_errores(
                                    # cae a env PROYECTO y, si no está, a "desconocido".
     carpeta=None,                  # None = usa env CARPETA_ERRORES o "./notificaciones/"
 )
-# ruta → "/var/log/.../notificaciones/errores_20260710_120000.json" o None si no había nada
+# ruta → "/var/log/.../notificaciones/errores_20260710_120000_123456.json" o None si no había nada
 
 # trazas de control (log de ejecución, stdlib logging + rotación temporal)
 # config centralizada por env vars (RUTA_CONTROL, LOG_NIVEL, ...). Una línea por traza.

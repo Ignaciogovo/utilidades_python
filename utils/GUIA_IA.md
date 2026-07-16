@@ -19,7 +19,7 @@ las use en un proyecto que ya las tenga copiadas en su propio `utils/`.
 | `csv_writer` | 1.0.0 | `CSVWriter`, `exportar_csv` | Leer/escribir CSV con cabecera y modo (`sobrescribir`/`anexar`) |
 | `text_writer` | 1.0.1 | `TextFileWriter` | Texto plano con append limpio (sin `\n` espurio en archivo nuevo) |
 | `json_writer` | 1.0.0 | `JsonFileWriter` | JSON con creación de carpetas padre y `append` dict/list |
-| `error_system` | 2.2.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control (log stdlib con rotación temporal) |
+| `error_system` | 2.2.1 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control (log stdlib con rotación temporal) |
 | `time_utils` | 1.0.0 | `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida` | Fechas `YYYYMMDD` (compacto) ↔ `date` y validación |
 | `enviar_correo` | 1.0.0 | `EmailWriter` | SMTP con STARTTLS, texto/HTML, context manager, config por env vars |
 | `enviar_notificaciones` | 1.0.0 | `procesar()` | One-shot: despacha JSONs de error_system por correo, los mueve a enviados/ y los borra tras 24h |
@@ -104,7 +104,7 @@ ruta = registrar_errores(
     errores=[err1, err2],
     origen="mi_proyecto",
     carpeta=None,          # None → env CARPETA_ERRORES o "./notificaciones/"
-)                          # → "/.../errores_20260710_120000.json" o None
+)                          # → "/.../errores_20260710_120000_123456.json" o None
 
 # trazas (log de control, stdlib logging + TimedRotatingFileHandler)
 # config centralizada por env vars: RUTA_CONTROL, LOG_NIVEL, LOG_ROTACION_DIAS,

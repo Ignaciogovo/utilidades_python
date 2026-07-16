@@ -1,6 +1,6 @@
 # utilidades-python:error_system
 # Descripción: Sistema unificado de gestión de errores y logs (validación + registro + consulta + trazas de control)
-# __version__ = "2.2.0"
+# __version__ = "2.2.1"
 #
 # Este módulo NO envía correos ni escribe en BBDD. Solo produce ficheros JSON
 # con la lista de errores filtrados según el sistema de notificaciones activo.
@@ -221,7 +221,7 @@ def fdatos_keys_errores(lista_errores: list, de_key: str) -> list:
 
 
 def _nombre_fichero_errores() -> str:
-    return f"errores_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    return f"errores_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
 
 
 def registrar_errores(
@@ -416,4 +416,4 @@ if __name__ == "__main__":
             else:
                 os.environ[k] = v
 
-    print("error_system v2.2.0 OK")
+    print("error_system v2.2.1 OK")
