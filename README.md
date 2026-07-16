@@ -17,9 +17,10 @@ Todos los `.py` viven en `utils/`:
 | `utils/csv_writer.py` | 1.0.0 | Leer/escribir CSV con control de cabeceras y modos (`w`/`a`) | Siempre que escribas CSVs a fichero |
 | `utils/text_writer.py` | 1.0.1 | Leer/escribir ficheros de texto plano con append limpio (sin `\n` espurio en archivo nuevo) | Cuando necesites logs o `.txt` simples |
 | `utils/json_writer.py` | 1.0.0 | Leer/escribir JSON creando carpetas padre y con append dict/list | Cuando persistas estado o config en JSON |
-| `utils/error_system.py` | 2.1.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
+| `utils/error_system.py` | 2.2.1 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
 | `utils/time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
 | `utils/enviar_correo.py` | 1.0.0 | Envío de correo vía SMTP (Gmail por defecto) con soporte texto/HTML, lee de env vars | Cuando necesites enviar correo desde un script o un daemon |
+| `utils/enviar_notificaciones.py` | 1.0.0 | Daemon one-shot que despacha los JSON de `error_system` por correo y los archiva/borra | Cuando ya produzcas notificaciones JSON y quieras un orquestador que las envíe |
 | `utils/check_updates.py` | 1.0.0 | Compara versiones entre este repo y un proyecto destino | Cuando tengas 2+ proyectos con copias de las utilidades |
 
 Todos los `.py` tienen un **self-check ejecutable**: `python -m utils.nombre_archivo` (sin args corre el self-check; con `<origen> <destino>` corre `check_updates`).
@@ -67,7 +68,7 @@ Este es el formato que produce `registrar_errores()` y que consumirá el daemon 
 
 El campo `contexto` es el punto de extensión: cada proyecto añade aquí sus datos específicos (jornada, temporada, partido, etc.) sin romper el schema.
 
-Cada llamada a `registrar_errores()` produce **un fichero por timestamp**: `errores_YYYYMMDD_HHMMSS.json` dentro de `CARPETA_ERRORES` (default `./notificaciones/`). El daemon los procesa y los puede borrar o archivar.
+Cada llamada a `registrar_errores()` produce **un fichero por timestamp**: `errores_YYYYMMDD_HHMMSS_ffffff.json` dentro de `CARPETA_ERRORES` (default `./notificaciones/`). El daemon los procesa y los puede borrar o archivar.
 
 ## Convención de versionado
 
@@ -80,6 +81,38 @@ SemVer simple:
 `check_updates.py` usa comparación numérica de tuplas: `tuple(int(x) for x in v.split("."))`. No valida que sea SemVer estricto, solo que el formato sea `X.Y.Z`.
 
 ## Changelog
+
+### 2.2.1 — `_nombre_fichero_errores` con microsegundos
+
+- `utils/error_system.py` **v2.2.1** (no breaking):
+  - `_nombre_fichero_errores()` ahora usa `%Y%m%d_%H%M%S_%f` en vez de `%Y%m%d_%H%M%S`.
+    Antes, dos `registrar_errores()` en el mismo segundo pisaban el mismo fichero
+    (mismo timestamp → mismo filename). Con microsegundos (`%f`, 6 dígitos) colisión
+    prácticamente imposible en práctica.
+  - Los JSONs existentes legacy (`errores_20260710_120000.json`) siguen siendo
+    legibles por `enviar_notificaciones` (el glob es `errores_*.json`).
+  - No se toca el schema ni la API.
+
+### 2.2.0 — `enviar_notificaciones` + `error_system` v2.2.0
+
+- `utils/enviar_notificaciones.py` **v1.0.0** (nuevo): daemon one-shot para cron
+  o systemd timer. Lee `errores_*.json` de `CARPETA_ERRORES`, envía los del
+  canal `email` (To viene del `to_email` del error, schema v1.1, o de
+  `EMAIL_GENERICO`), mueve el fichero a `ENVIADOS_DIR` y lo borra cuando han
+  pasado `RETENCION_HORAS` (default 24h). Reutiliza SMTP de `enviar_correo` y
+  traza en el log de control de `error_system`. Self-check sin red (stub de
+  `EmailWriter`).
+- `utils/error_system.py` **v2.2.0** (no breaking):
+  - `registrar_errores(origen=None)` ahora cae a env var `PROYECTO` (o
+    `"desconocido"`) si te lo saltas. Antes era siempre literal `"desconocido"`.
+    Pasar `origen` explícito sigue ganando.
+  - `nuevo_error(...)` gana `from_email` y `to_email` opcionales (CSV) — schema
+    v1.1. Solo se añaden al dict del error si se pasan. `validar_error` no las
+    exige (backward compatible con JSONs legacy).
+- Docs (TUTORIAL, GUIA_IA, README): section nueva de `enviar_notificaciones`,
+  `PROYECTO`/`EMAIL_GENERICO`/`ENVIADOS_DIR`/`RETENCION_HORAS` en el diccionario
+  de env vars, dependencias actualizadas (`enviar_notificaciones` depende de
+  `enviar_correo` + `json_writer` + `error_system`).
 
 ### 2.1.0 — defaults de rutas más prácticos en `error_system`
 
@@ -125,4 +158,4 @@ SemVer simple:
 - **No escribe en BBDD**. El registro en BBDD es responsabilidad del daemon externo que consuma los JSON.
 - **No es un paquete pip**. Se copia archivo a archivo a `utils/` del proyecto destino, no se instala.
 - **No tiene tests con pytest**. Cada archivo tiene un self-check ejecutable que verifica la lógica principal.
-- **El envío de correo vive en una utilidad, pero NO incluye la lógica del daemon**: `enviar_correo.py` envía un correo configurado por env vars, pero no implementa el bucle que consume los JSON de `error_system.py` y los despacha. Esa lógica de daemon queda fuera del alcance de esta librería.
+- **El envío de correo vive en una utilidad, y la lógica de despachar los JSON de `error_system.py` está en `enviar_notificaciones.py`**: `enviar_correo.py` envía un único correo (low-level, sin estado de cola); `enviar_notificaciones.py` es el daemon one-shot que lee los JSON pendientes, los despacha con `EmailWriter`, los archiva en `enviados/` y los borra tras 24h. Pensado para cron/systemd.
