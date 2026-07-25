@@ -1,6 +1,6 @@
 # utilidades-python:error_system
 # Descripción: Sistema unificado de gestión de errores y logs (validación + registro + consulta + trazas de control)
-# __version__ = "2.2.1"
+# __version__ = "2.3.0"
 #
 # Este módulo NO envía correos ni escribe en BBDD. Solo produce ficheros JSON
 # con la lista de errores filtrados según el sistema de notificaciones activo.
@@ -11,9 +11,14 @@
 #   CARPETA_ERRORES  → ruta donde se escriben los JSON de errores. Default: "./notificaciones/"
 #   PROYECTO         → nombre del proyecto/proceso. Default de `origen` en
 #                      registrar_errores() si no se pasa explícito. Default: "desconocido"
+#   LOG_PREFIJO       → si se setea, se antepone al nombre de ficheros log y JSON.
+#                      P.ej. LOG_PREFIJO=mi_app → log "mi_app_control.log",
+#                      JSON "mi_app_errores_....json". Si no se setea: "control.log" y
+#                      "errores_....json" sin prefijo.
 #
 # Configuración de LOG (trazas de control, vía envio_control, respaldado por stdlib logging):
-#   RUTA_CONTROL         → ruta del fichero de log. Default: "./logs/control.log"
+#   RUTA_CONTROL         → ruta del fichero de log. Default: "./logs/<LOG_PREFIJO>_control.log"
+#                          (o "./logs/control.log" si LOG_PREFIJO no se setea).
 #                          Los ficheros rotated por TimedRotatingFileHandler viven en la
 #                          misma carpeta (./logs/).
 #   LOG_NIVEL            → DEBUG|INFO|WARNING|ERROR|CRITICAL. Filtra lo que se emite. Default: "INFO"
@@ -97,7 +102,9 @@ def _get_logger() -> logging.Logger:
         logger.setLevel(_resolve_nivel())
         return logger
 
-    ruta = os.getenv("RUTA_CONTROL", "./logs/control.log")
+    prefijo = os.getenv("LOG_PREFIJO", "")
+    nombre_log = f"{prefijo}_control.log" if prefijo else "control.log"
+    ruta = os.getenv("RUTA_CONTROL") or os.path.join("./logs", nombre_log)
     parent = os.path.dirname(ruta)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -221,7 +228,10 @@ def fdatos_keys_errores(lista_errores: list, de_key: str) -> list:
 
 
 def _nombre_fichero_errores() -> str:
-    return f"errores_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
+    prefijo = os.getenv("LOG_PREFIJO", "")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    nombre = f"errores_{ts}.json"
+    return f"{prefijo}_{nombre}" if prefijo else nombre
 
 
 def registrar_errores(
@@ -347,7 +357,7 @@ if __name__ == "__main__":
     # --- Tests de log (envio_control: timestamp, niveles, rotación, idempotencia) ---
     saved_env = {k: os.environ.get(k) for k in (
         "RUTA_CONTROL", "LOG_NIVEL", "LOG_ROTACION_DIAS", "LOG_BACKUPS",
-        "LOG_FMT", "LOG_CONSOLE",
+        "LOG_FMT", "LOG_CONSOLE", "LOG_PREFIJO",
     )}
     saved_cwd = os.getcwd()
     try:
@@ -407,6 +417,23 @@ if __name__ == "__main__":
             assert os.path.isfile(log_path), "el fichero activo debe reabrirse tras rotar"
 
             _reset_logger()
+
+            # 5) LOG_PREFIJO: nombre del log y de los JSON interpolan el prefijo
+            _reset_logger()
+            os.environ.pop("RUTA_CONTROL", None)
+            os.environ["LOG_PREFIJO"] = "test_app"
+            envio_control("traza con prefijo")
+            log = _get_logger()
+            for h in log.handlers:
+                h.flush()
+            fh = next(h for h in log.handlers if isinstance(h, TimedRotatingFileHandler))
+            assert "test_app_control.log" in fh.baseFilename, fh.baseFilename
+            # _nombre_fichero_errores respeta el prefijo
+            nombre_json = _nombre_fichero_errores()
+            assert nombre_json.startswith("test_app_errores_"), nombre_json
+            assert nombre_json.endswith(".json"), nombre_json
+            os.environ.pop("LOG_PREFIJO", None)
+            _reset_logger()
     finally:
         _reset_logger()
         os.chdir(saved_cwd)
@@ -416,4 +443,4 @@ if __name__ == "__main__":
             else:
                 os.environ[k] = v
 
-    print("error_system v2.2.1 OK")
+    print("error_system v2.3.0 OK")
