@@ -32,6 +32,8 @@ los tuyos).
 CARPETA_ERRORES=./notificaciones/
 # Nombre del proyecto; default del campo `origen` si no pasas origen a registrar_errores
 PROYECTO=mi_proyecto
+# Prefijo para nombres de fichero log y JSON (opcional, sin prefijo por defecto)
+# LOG_PREFIJO=mi_app
 # Fichero de log activo; los rotated (TimedRotatingFileHandler) viven junto a este
 RUTA_CONTROL=./logs/control.log
 # Nivel mínimo: DEBUG | INFO | WARNING | ERROR | CRITICAL
@@ -70,7 +72,7 @@ SMTP_PORT=587
 # EMAIL_GENERICO); el daemon lo setea a un placeholder si lo dejaste vacío.
 # EMAIL_GENERICO: To por defecto si un error no trae to_email · recomendado
 EMAIL_GENERICO=alertas@midominio.com
-# Carpeta pendientes (mismo default que error_system). Lee los errores_*.json de aquí
+# Carpeta pendientes (mismo default que error_system). Lee los *errores_*.json de aquí
 CARPETA_ERRORES=./notificaciones/
 # Subcarpeta destino tras procesar cada JSON (se crea sola)
 ENVIADOS_DIR=./notificaciones/enviados/
@@ -153,7 +155,7 @@ el archivo desde el origen y vuelve a correr el self-check:
 
 ```bash
 cp /workspace/utilidades_python/utils/error_system.py mi_proyecto/utils/
-python -m utils.error_system   # debe decir v2.0.0 OK
+python -m utils.error_system   # debe decir v2.3.0 OK
 ```
 
 Si el cambio es major (p.ej. `error_system` 1.0.0 → 2.0.0), revisa la nota de
@@ -450,6 +452,11 @@ CARPETA_ERRORES=/var/log/mi_proyecto/notificaciones
 # Nombre del proyecto; default del campo `origen` del JSON si no pasas origen a registrar_errores
 PROYECTO=mi_proyecto
 
+# Prefijo para nombres de fichero log y JSON (opcional)
+# Sin prefijo: control.log, errores_...json
+# Con prefijo: mi_app_control.log, mi_app_errores_...json
+# LOG_PREFIJO=mi_app
+
 # Log de control (envio_control) — stdlib logging + TimedRotatingFileHandler
 RUTA_CONTROL=/var/log/mi_proyecto/logs/control.log
 LOG_NIVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
@@ -462,7 +469,8 @@ LOG_CONSOLE=0                 # 1 → también emite a stderr
 > **Defaults sin .env (2.1.0+):** si no seteas nada, los JSON caen en
 > `./notificaciones/` y el log de control (activo + backups rotated) en
 > `./logs/control.log`. Las carpetas se crean solas. Setea las env vars solo
-> si quieres otra ubicación.
+> si quieres otra ubicación. Si seteas `LOG_PREFIJO`, los nombres incluyen
+> el prefijo (p.ej. `./logs/mi_app_control.log`, `mi_app_errores_...json`).
 
 ### API mínima
 
@@ -921,7 +929,7 @@ Igual que antes, pero ahora `enviar_correo.py` también se puede importar como u
 # Las credenciales SMTP las toma de enviar_correo (EMISOR_CORREO, PASS_CORREO,
 # SMTP_HOST, SMTP_PORT). Si no las seteas, el daemon se queja y no procesa.
 EMAIL_GENERICO=alertas@midominio.com         # To por defecto si un error no trae to_email
-CARPETA_ERRORES=./notificaciones/             # Donde están los errores_*.json pendientes
+CARPETA_ERRORES=./notificaciones/             # Donde están los *errores_*.json pendientes
 ENVIADOS_DIR=./notificaciones/enviados/       # Tras procesar, los mueve aquí (se crea sola)
 RETENCION_HORAS=24                            # Horas en enviados/ antes de borrarse
 # Log: RUTA_CONTROL, LOG_NIVEL, ... (heredados de error_system)
@@ -945,9 +953,9 @@ res = procesar()
 
 ### Qué hace una pasada (`procesar()`)
 
-1. **Limpieza previa.** Borra de `ENVIADOS_DIR` los `errores_*.json` con `mtime` más
+1. **Limpieza previa.** Borra de `ENVIADOS_DIR` los `*errores_*.json` con `mtime` más
    viejo que `ahora - RETENCION_HORAS*3600`. Una syscall por fichero.
-2. **Sin pendientes → sale.** Si no hay `errores_*.json` en `CARPETA_ERRORES`, no
+2. **Sin pendientes → sale.** Si no hay `*errores_*.json` en `CARPETA_ERRORES`, no
    abre SMTP y devuelve un resumen con ceros.
 3. **Sin credenciales → se queja.** Si falta `EMISOR_CORREO` o `PASS_CORREO`,
    loguea ERROR con `envio_control` y sale **sin mover** los pendientes (los deja
