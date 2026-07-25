@@ -16,7 +16,7 @@ archivo a archivo** en otros proyectos personales (no es un paquete instalable).
   completa, ejemplos reales, errores comunes). **Debe estar siempre
   actualizada** cuando cambie el comportamiento o la API pública.
 - `README.md` → overview + 8 pasos para empezar + schema + changelog.
-- `envio_correo_docker/` → Dockerfile + doc.txt para `enviar_correo`.
+- `envio_notificaciones_docker/` → Dockerfile + doc.txt para `enviar_notificaciones`.
 
 Convenciones al tocar un `.py` de `utils/` (no romperlas):
 - Cabecera estándar: `# utilidades-python:nombre` + `# __version__ = "X.Y.Z"`.

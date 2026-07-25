@@ -873,22 +873,14 @@ with EmailWriter() as m:
     )
 ```
 
-### Ejemplo real: docker entrypoint (migración del antiguo `envio_correo_docker`)
+### Ejemplo real: docker entrypoint (migración)
 
-El antiguo `envio_correo_docker/Dockerfile` ahora apunta a `../utils/enviar_correo.py` y se construye con `docker build` desde la raíz del repo. El entrypoint sigue siendo el mismo:
+Antes el Dockerfile vivía en `envio_correo_docker/` y ejecutaba `enviar_correo.py`
+directamente. Ahora el directorio se llama `envio_notificaciones_docker/` y ejecuta
+`enviar_notificaciones.py` (el orquestador). `enviar_correo.py` se usa como librería,
+no como entrypoint de contenedor.
 
-```bash
-docker build -t correo-docker /workspace/utilidades_python/
-docker run --rm \
-  -e EMISOR_CORREO=tu_correo@gmail.com \
-  -e PASS_CORREO=tu_app_password \
-  -e RECEPTOR_CORREO=dest@x.com \
-  -e ASUNTO="UPS ALERTA" \
-  -e TEXTO="UPS ha cambiado de estado" \
-  correo-docker
-```
-
-Igual que antes, pero ahora `enviar_correo.py` también se puede importar como utilidad Python normal desde otro proyecto.
+Ver la sección [enviar_notificaciones.py > Docker](#docker) para instrucciones actualizadas.
 
 ### Errores comunes
 
@@ -966,6 +958,26 @@ res = procesar()
        el resto (un fallo de SMTP no aborta el lote).
    - Mueve el fichero procesado a `ENVIADOS_DIR` con `shutil.move`.
 6. **Resume** con `envio_control`: `ficheros X, enviados Y, fallidos Z, sin_dest W`.
+
+### Docker
+
+El directorio `envio_notificaciones_docker/` contiene un Dockerfile listo para
+usar. Contexto de build = raíz del repo. Solo necesitas un `.env`:
+
+```bash
+# Build
+cd /ruta/al/repo/utilidades_python
+docker build -f envio_notificaciones_docker/Dockerfile -t enviar-notificaciones .
+
+# Run (one-shot, con .env + volumen persistente)
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/notificaciones:/app/notificaciones \
+  enviar-notificaciones
+```
+
+Se ejecuta una sola pasada. Para repetir cada N minutos, pon el `docker run`
+dentro de un cron del host o un systemd timer.
 
 ### Ejemplo real: cron cada 5 minutos
 
