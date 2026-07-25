@@ -197,13 +197,12 @@ from utils.enviar_notificaciones import procesar
 # Una pasada: borra viejos de ENVIADOS_DIR (> RETENCION_HORAS), lee
 # CARPETA_ERRORES/*errores_*.json, envía los notificacion.email=True y los
 # mueve a ENVIADOS_DIR. Sin pendientes → sale sin abrir SMTP.
-res = procesar()  # {"borrados": int, "ficheros": int, "enviados": int,
-                  #  "fallidos": int, "sin_dest": int}
+res = procesar()  # {"borrados": int, "enviados": int, "fallidos": int}
 ```
 
 Trazas via `envio_control` (hereda `RUTA_CONTROL`, `LOG_NIVEL`, ...). Self-check sin red (stub de `EmailWriter`). Pensado para cron/systemd (one-shot, sin bucle).
 
-### `check_updates` (CLI, no importable)
+### `check_updates` (diseñado como CLI, también importable)
 
 ```bash
 python utils/check_updates.py <directorio_utils_origen> <directorio_utils_destino>
