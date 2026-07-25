@@ -17,7 +17,7 @@ Todos los `.py` viven en `utils/`:
 | `utils/csv_writer.py` | 1.0.0 | Leer/escribir CSV con control de cabeceras y modos (`w`/`a`) | Siempre que escribas CSVs a fichero |
 | `utils/text_writer.py` | 1.0.1 | Leer/escribir ficheros de texto plano con append limpio (sin `\n` espurio en archivo nuevo) | Cuando necesites logs o `.txt` simples |
 | `utils/json_writer.py` | 1.0.0 | Leer/escribir JSON creando carpetas padre y con append dict/list | Cuando persistas estado o config en JSON |
-| `utils/error_system.py` | 2.2.1 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
+| `utils/error_system.py` | 2.3.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
 | `utils/time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
 | `utils/enviar_correo.py` | 1.0.0 | Envío de correo vía SMTP (Gmail por defecto) con soporte texto/HTML, lee de env vars | Cuando necesites enviar correo desde un script o un daemon |
 | `utils/enviar_notificaciones.py` | 1.1.0 | Daemon one-shot que despacha los JSON de `error_system` por correo y los archiva/borra | Cuando ya produzcas notificaciones JSON y quieras un orquestador que las envíe |
@@ -82,6 +82,21 @@ SemVer simple:
 
 ## Changelog
 
+### error_system 2.3.0 — `LOG_PREFIJO`
+
+- `utils/error_system.py` **v2.3.0** (no breaking):
+  - Nuevo env var `LOG_PREFIJO` (opcional). Si se setea, se antepone al nombre de
+    ficheros log y JSON: `LOG_PREFIJO=mi_app` → log `mi_app_control.log`,
+    JSON `mi_app_errores_YYYYMMDD_HHMMSS_ffffff.json`. Sin prefijo: `control.log`,
+    `errores_...json` (comportamiento anterior).
+  - `RUTA_CONTROL` default ahora interpola `LOG_PREFIJO`: `./logs/{LOG_PREFIJO}_control.log`
+    (o `./logs/control.log` si no se setea). Si la tenías seteada explícitamente, tu
+    valor sigue ganando.
+  - `enviar_notificaciones` (v1.1.0+) usa glob `*errores_*.json` → detecta JSONs
+    con o sin prefijo.
+- Docs (TUTORIAL, GUIA_IA, README): `LOG_PREFIJO` en diccionario de env vars,
+  nota de migración 2.2.1→2.3.0, defaults actualizados.
+
 ### enviar_notificaciones 1.1.0 — simplificación + fix `RECEPTOR_CORREO`
 
 - `utils/enviar_notificaciones.py` **v1.1.0**:
@@ -97,13 +112,13 @@ SemVer simple:
     (mismo timestamp → mismo filename). Con microsegundos (`%f`, 6 dígitos) colisión
     prácticamente imposible en práctica.
   - Los JSONs existentes legacy (`errores_20260710_120000.json`) siguen siendo
-    legibles por `enviar_notificaciones` (el glob es `errores_*.json`).
+    legibles por `enviar_notificaciones` (el glob es `*errores_*.json`).
   - No se toca el schema ni la API.
 
 ### 2.2.0 — `enviar_notificaciones` + `error_system` v2.2.0
 
 - `utils/enviar_notificaciones.py` **v1.0.0** (nuevo): daemon one-shot para cron
-  o systemd timer. Lee `errores_*.json` de `CARPETA_ERRORES`, envía los del
+  o systemd timer. Lee `*errores_*.json` de `CARPETA_ERRORES`, envía los del
   canal `email` (To viene del `to_email` del error, schema v1.1, o de
   `EMAIL_GENERICO`), mueve el fichero a `ENVIADOS_DIR` y lo borra cuando han
   pasado `RETENCION_HORAS` (default 24h). Reutiliza SMTP de `enviar_correo` y

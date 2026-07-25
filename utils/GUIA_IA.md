@@ -19,7 +19,7 @@ las use en un proyecto que ya las tenga copiadas en su propio `utils/`.
 | `csv_writer` | 1.0.0 | `CSVWriter`, `exportar_csv` | Leer/escribir CSV con cabecera y modo (`sobrescribir`/`anexar`) |
 | `text_writer` | 1.0.1 | `TextFileWriter` | Texto plano con append limpio (sin `\n` espurio en archivo nuevo) |
 | `json_writer` | 1.0.0 | `JsonFileWriter` | JSON con creación de carpetas padre y `append` dict/list |
-| `error_system` | 2.2.1 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control (log stdlib con rotación temporal) |
+| `error_system` | 2.3.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control (log stdlib con rotación temporal) |
 | `time_utils` | 1.0.0 | `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida` | Fechas `YYYYMMDD` (compacto) ↔ `date` y validación |
 | `enviar_correo` | 1.0.0 | `EmailWriter` | SMTP con STARTTLS, texto/HTML, context manager, config por env vars |
 | `enviar_notificaciones` | 1.1.0 | `procesar()` | One-shot: despacha JSONs de error_system por correo, los mueve a enviados/ y los borra tras 24h |
@@ -140,6 +140,13 @@ envio_control("fallo grave", nivel="ERROR")      # se escribe si LOG_NIVEL <= ER
 - `enviar_notificaciones` (v1.1.0) las consume si presentes: si un error trae `to_email`, ese es el destinatario; si no, cae a env var `EMAIL_GENERICO`.
 - Setea `PROYECTO` en tu `.env` con el nombre de tu proyecto (lo verás en el campo `origen` de cada JSON).
 
+#### Migración 2.2.1 → 2.3.0 (`LOG_PREFIJO`)
+
+- Nuevo opcional. Sin `LOG_PREFIJO` seteado, todo funciona igual (default `""` → sin prefijo).
+- Si seteas `LOG_PREFIJO=mi_app`, los ficheros log pasan a `mi_app_control.log` (antes `control.log`) y los JSON de errores a `mi_app_errores_YYYYMMDD_HHMMSS_ffffff.json` (antes `errores_...json`).
+- `RUTA_CONTROL` ahora interpola `LOG_PREFIJO` por defecto. Si la tenías seteada explícitamente, tu valor sigue ganando.
+- `enviar_notificaciones` (v1.1.0+) usa glob `*errores_*.json` → detecta JSONs con o sin prefijo.
+
 ### `time_utils`
 
 ```python
@@ -188,7 +195,7 @@ Levanta `ValueError` si `conectar()` se llama sin `EMISOR_CORREO`/`PASS_CORREO`/
 from utils.enviar_notificaciones import procesar
 
 # Una pasada: borra viejos de ENVIADOS_DIR (> RETENCION_HORAS), lee
-# CARPETA_ERRORES/errores_*.json, envía los notificacion.email=True y los
+# CARPETA_ERRORES/*errores_*.json, envía los notificacion.email=True y los
 # mueve a ENVIADOS_DIR. Sin pendientes → sale sin abrir SMTP.
 res = procesar()  # {"borrados": int, "ficheros": int, "enviados": int,
                   #  "fallidos": int, "sin_dest": int}
@@ -208,9 +215,10 @@ Salida: tabla con estados `OK` / `DESACTUALIZADO` / `FALTA_EN_DESTINO` / `MAS_NU
 
 | Variable | Usada por | Default | Notas |
 |---|---|---|---|
+| `LOG_PREFIJO` | `error_system` | — | Si se setea, se antepone al nombre de ficheros log y JSON: `mi_app_control.log`, `mi_app_errores_...json`. Sin prefijo: `control.log`, `errores_...json` |
 | `CARPETA_ERRORES` | `error_system`, `enviar_notificaciones` | `./notificaciones/` | Carpeta de JSON pendientes. El daemon la lee |
 | `PROYECTO` | `error_system` | `desconocido` | Default de `origen` en `registrar_errores` si no se pasa explícito |
-| `RUTA_CONTROL` | `error_system` (log) | `./logs/control.log` | Fichero de log de control (TimedRotatingFileHandler). Los ficheros rotated viven en el mismo dir |
+| `RUTA_CONTROL` | `error_system` (log) | `./logs/{LOG_PREFIJO}_control.log` (o `./logs/control.log` sin prefijo) | Fichero de log de control (TimedRotatingFileHandler). Los ficheros rotated viven en el mismo dir |
 | `LOG_NIVEL` | `error_system` (log) | `INFO` | `DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL` — filtra lo que se emite |
 | `LOG_ROTACION_DIAS` | `error_system` (log) | `15` | Días entre rotaciones |
 | `LOG_BACKUPS` | `error_system` (log) | `4` | Nº de ficheros rotated conservados (15×4 ≈ 2 meses) |
@@ -276,7 +284,7 @@ from utils.enviar_notificaciones import procesar
 res = procesar()   # una pasada; mira el resumen {borrados, ficheros, enviados, ...}
 ```
 
-Cada pasada: borra viejos de `ENVIADOS_DIR` (>24h), lee `CARPETA_ERRORES/errores_*.json`,
+Cada pasada: borra viejos de `ENVIADOS_DIR` (>24h), lee `CARPETA_ERRORES/*errores_*.json`,
 envía los `notificacion.email=True` (To: `to_email` del error o `EMAIL_GENERICO`),
 y mueve el JSON a `enviados/`. Cron lo relanza cada N minutos.
 

@@ -5,7 +5,7 @@
 #
 # Four-step flow cada ejecución:
 #   1) borra viejos de ENVIADOS_DIR (mtime > RETENCION_HORAS)
-#   2) lista pendientes CARPETA_ERRORES/errores_*.json
+#   2) lista pendientes CARPETA_ERRORES/*errores_*.json
 #   3) envía los errores con notificacion.email=True (uno por correo)
 #   4) mueve el fichero a ENVIADOS_DIR (marcado como enviado)
 #
@@ -104,7 +104,7 @@ def procesar() -> dict:
     if borrados:
         envio_control(f"borrados {borrados} viejos de enviados/", nivel="INFO")
 
-    pendientes = sorted(glob.glob(os.path.join(carpeta, "errores_*.json")))
+    pendientes = sorted(glob.glob(os.path.join(carpeta, "*errores_*.json")))
     total = {"borrados": borrados, "enviados": 0, "fallidos": 0}
 
     if not pendientes:
