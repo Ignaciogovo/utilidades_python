@@ -1,347 +1,296 @@
 # utilidades-python:enviar_notificaciones
 # Descripción: Daemon one-shot que despacha JSONs de error_system por correo y los
-#              archivos en una subcarpeta `enviados/`, borrándolos tras 24h.
-# __version__ = "1.0.0"
+#              archivos en `enviados/`, borrándolos tras N horas.
+# __version__ = "1.1.0"
 #
-# Su rol: ES el script que tiene las credenciales (las lee de env vars, no las
-# hardcodea). error_system.py no sabe de correos; enviar_correo.py no sabe de
-# rutas ni de estado. Este script es el pegamento: lee pendientes, despacha,
-# marca y limpia.
-#
-# Pensado para cron o systemd timer (one-shot). Sin bucle, sin sleep. Cada
-# ejecución: limpia viejos → procesa pendientes → sale.
+# Four-step flow cada ejecución:
+#   1) borra viejos de ENVIADOS_DIR (mtime > RETENCION_HORAS)
+#   2) lista pendientes CARPETA_ERRORES/errores_*.json
+#   3) envía los errores con notificacion.email=True (uno por correo)
+#   4) mueve el fichero a ENVIADOS_DIR (marcado como enviado)
 #
 # Configuración (variables de entorno):
-#   CARPETA_ERRORES   → carpeta donde yacen los errores_*.json pendientes.
-#                       Default: "./notificaciones/" (mismo default que error_system).
-#   ENVIADOS_DIR      → subcarpeta destino tras enviar. Default: <CARPETA_ERRORES>/enviados/.
-#   RETENCION_HORAS   → horas mínimas en enviados/ antes de borrar. Default: "24".
-#   EMAIL_GENERICO     → dirección "To" por defecto si un error no trae `to_email`
-#                       (campo opcional schema v1.1). Puede ser CSV.
+#   CARPETA_ERRORES  → carpeta de pendientes.  Default: "./notificaciones/"
+#   ENVIADOS_DIR     → subcarpeta destino.    Default: <CARPETA_ERRORES>enviados
+#   RETENCION_HORAS  → horas en enviados/ antes de borrar. Default: "24"
+#   EMAIL_GENERICO   → To por defecto si un error no trae to_email. CSV.
 #
-# SMTP: reutiliza env vars de enviar_correo (EMISOR_CORREO, PASS_CORREO,
-#       SMTP_HOST, SMTP_PORT). ASUNTO/TEXTO heredados pero el script SIEMPRE
-#       pasa asunto y cuerpo explícitos a enviar(), de modo que esos defaults
-#       no se usan aquí.
+# SMTP: reutiliza env vars de enviar_correo (EMISOR_CORREO, PASS_CORREO, SMTP_*).
+#   RECEPTOR_CORREO no es obligatorio aquí: si no lo seteas, el daemon usa un
+#   placeholder (los To reales vienen de to_email/EMAIL_GENERICO por error).
 #
-# Log de control: usa error_system.envio_control (hereda RUTA_CONTROL, LOG_*).
+# Log: usa error_system.envio_control (hereda RUTA_CONTROL, LOG_NIVEL, ...).
 #
-# API (callable from Python): `procesar()` corre una pasada y devuelve resumen.
-# CLI: `python -m utils.enviar_notificaciones` o `python utils/enviar_notificaciones.py`.
-#
-# Estado final de cada fichero procesado:
-#   - movido a ENVIADOS_DIR con timestamp = mtime tras el move (shutil.move
-#     reescribe stat con la hora actual). Borrado en la siguiente pasada si
-#     mtime + RETENCION_HORAS*3600 < ahora.
+# API:  procesar() -> dict  ·  CLI: python -m utils.enviar_notificaciones
 
 import glob
 import os
 import shutil
 import time
-from typing import Optional
 
 from .enviar_correo import EmailWriter
-from .error_system import envio_control
+from .error_system import envio_control, _reset_logger
 from .json_writer import JsonFileWriter
 
 
-def _carpeta_pendientes() -> str:
-    return os.getenv("CARPETA_ERRORES", "./notificaciones/")
-
-
-def _carpeta_enviados() -> str:
-    d = os.getenv("ENVIADOS_DIR")
-    if d:
-        return d
-    return os.path.join(_carpeta_pendientes(), "enviados")
-
-
-def _retencion_horas() -> int:
-    return int(os.getenv("RETENCION_HORAS", "24"))
-
-
-def _borrar_viejos(enviados_dir: str, retencion_h: int) -> int:
-    """Borra ficheros en enviados_dir con mtime anterior a ahora - retencion_h.
-
-    Returns: nº de ficheros borrados.
-    """
+def borrar_viejos(enviados_dir: str, retencion_h: int) -> int:
+    """Borra *.json de enviados_dir con mtime > retencion_h. Devuelve nº borrados."""
     if not os.path.isdir(enviados_dir):
         return 0
     cutoff = time.time() - retencion_h * 3600
-    borrados = 0
+    n = 0
     for f in glob.glob(os.path.join(enviados_dir, "*.json")):
         try:
             if os.stat(f).st_mtime < cutoff:
                 os.remove(f)
-                borrados += 1
+                n += 1
         except OSError as e:
-            envio_control(f"no pude borrar {f}: {e}", nivel="WARNING")
-    return borrados
+            envio_control(f"no pude borrar {f}: {e}", nivel="ERROR")
+    return n
 
 
-def _resolver_destinatarios(err: dict) -> Optional[list]:
-    """Devuelve lista de destinatarios para un error, o None si no hay ninguno.
+def _iterar_envios(ruta):
+    """Lee un JSON de errores y yield'a (to, asunto, cuerpo) por cada error
+    con notificacion.email=True y destinatario resolvible. Si no hay ningún
+    envío que hacer (no hay email, o no hay destino), simplemente no yield'a
+    nada — el llamador debe mover el fichero a enviados/ igual.
 
-    Prioridad: error.to_email (CSV) → env var EMAIL_GENERICO (CSV).
+    Resolución de To: err.to_email (CSV) → env var EMAIL_GENERICO (CSV).
+    Si no hay ninguno, WARNING y skip este error (no yield'a).
     """
-    to = err.get("to_email") or os.getenv("EMAIL_GENERICO", "")
-    if not to:
-        return None
-    return [r.strip() for r in to.split(",") if r.strip()]
-
-
-def _procesar_fichero(
-    ruta: str,
-    m: EmailWriter,
-    enviados_dir: str,
-) -> dict:
-    """Lee un JSON de errores, envía los que tienen notificacion.email=True y lo
-    mueve a enviados_dir. Devuelve resumen {enviados, fallidos, sin_dest}.
-
-    Si el fichero no se pudo leer o no tiene errores para email, igualmente se
-    mueve a enviados (no dejamos pendientes inválidos pudriéndose en cola).
-    """
-    resumen = {"enviados": 0, "fallidos": 0, "sin_dest": 0}
     try:
         payload = JsonFileWriter(ruta).read()
     except (OSError, ValueError) as e:
         envio_control(f"no pude leer {ruta}: {e}", nivel="ERROR")
-        _mover_a_enviados(ruta, enviados_dir)
-        return resumen
+        return
 
     if not payload or not payload.get("errores"):
-        envio_control(f"fichero sin errores: {ruta}", nivel="DEBUG")
-        _mover_a_enviados(ruta, enviados_dir)
-        return resumen
+        return
 
     origen = payload.get("origen", "desconocido")
+    generico = os.getenv("EMAIL_GENERICO", "")
     for err in payload["errores"]:
         if not isinstance(err, dict):
             continue
-        notif = err.get("notificacion", {})
-        if not notif.get("email", False):
-            continue  # no es para correo
-
-        destinos = _resolver_destinatarios(err)
+        if not err.get("notificacion", {}).get("email", False):
+            continue
+        to = err.get("to_email") or generico
+        destinos = [r.strip() for r in to.split(",") if r.strip()] if to else []
         if not destinos:
-            resumen["sin_dest"] += 1
             envio_control(
-                f"error sin destinatario (sin to_email ni EMAIL_GENERICO): {err.get('texto', '')!r}",
+                f"error sin destinatario (sin to_email ni EMAIL_GENERICO): "
+                f"{err.get('texto', '')!r}",
                 nivel="WARNING",
             )
             continue
-
         tipo = err.get("tipo", "info")
         texto = err.get("texto", "")
-        contexto = err.get("contexto", {})
         asunto = f"[{origen}] {tipo.upper()}: {texto[:50]}"
         cuerpo = (
             f"[{tipo.upper()}] {texto}\n\n"
             f"Origen: {origen}\n"
-            f"Contexto: {contexto}"
+            f"Contexto: {err.get('contexto', {})}"
         )
-
-        # el From es siempre EMISOR_CORREO (quien hace login SMTP); solo mutamos
-        # la lista de receptores para este envío.
-        m.receptores = destinos
-        try:
-            m.enviar(asunto, cuerpo)
-            resumen["enviados"] += 1
-            envio_control(f"enviado a {destinos} — {tipo}: {texto[:40]!r}", nivel="INFO")
-        except Exception as e:
-            resumen["fallidos"] += 1
-            envio_control(f"falló envío a {destinos}: {e}", nivel="ERROR")
-
-    _mover_a_enviados(ruta, enviados_dir)
-    return resumen
-
-
-def _mover_a_enviados(ruta: str, enviados_dir: str) -> None:
-    os.makedirs(enviados_dir, exist_ok=True)
-    try:
-        shutil.move(ruta, os.path.join(enviados_dir, os.path.basename(ruta)))
-    except OSError as e:
-        envio_control(f"no pude mover {ruta} a enviados: {e}", nivel="ERROR")
+        yield destinos, asunto, cuerpo
 
 
 def procesar() -> dict:
-    """Una pasada: borra viejos, envía pendientes, devuelve resumen total.
+    """Una pasada. Devuelve {borrados, enviados, fallidos}."""
+    carpeta = os.getenv("CARPETA_ERRORES", "./notificaciones/")
+    enviados_dir = os.getenv("ENVIADOS_DIR") or os.path.join(carpeta, "enviados")
+    retencion = int(os.getenv("RETENCION_HORAS", "24"))
 
-    Returns: {borrados, ficheros, enviados, fallidos, sin_dest}
-    """
-    enviados_dir = _carpeta_enviados()
-    pendientes_dir = _carpeta_pendientes()
-
-    borrados = _borrar_viejos(enviados_dir, _retencion_horas())
+    borrados = borrar_viejos(enviados_dir, retencion)
     if borrados:
-        envio_control(f"borrados {borrados} ficheros viejos de enviados/", nivel="INFO")
+        envio_control(f"borrados {borrados} viejos de enviados/", nivel="INFO")
 
-    pat = os.path.join(pendientes_dir, "errores_*.json")
-    ficheros = sorted(glob.glob(pat))
-    total = {"borrados": borrados, "ficheros": 0, "enviados": 0, "fallidos": 0, "sin_dest": 0}
+    pendientes = sorted(glob.glob(os.path.join(carpeta, "errores_*.json")))
+    total = {"borrados": borrados, "enviados": 0, "fallidos": 0}
 
-    if not ficheros:
-        envio_control("sin pendientes", nivel="DEBUG")
+    if not pendientes:
         return total
 
-    if not os.getenv("EMISOR_CORREO") or not os.getenv("PASS_CORREO"):
-        envio_control(
-            "faltan EMISOR_CORREO / PASS_CORREO: no puedo conectar SMTP",
-            nivel="ERROR",
-        )
+    if not (os.getenv("EMISOR_CORREO") and os.getenv("PASS_CORREO")):
+        envio_control("faltan EMISOR_CORREO / PASS_CORREO: no puedo conectar SMTP", nivel="ERROR")
         return total
+
+    # EmailWriter.__init__ requiere RECEPTOR_CORREO no-vacío para conectar(); los
+    # To reales llegan por error (to_email) o EMAIL_GENERICO, y se sobrescriben
+    # en m.receptores antes de cada enviar(). Sin setdefault, conectar() revienta.
+    os.environ.setdefault("RECEPTOR_CORREO", "noreply@localhost")
 
     with EmailWriter() as m:
         m.conectar()
-        for ruta in ficheros:
-            envio_control(f"procesando {os.path.basename(ruta)}", nivel="DEBUG")
-            r = _procesar_fichero(ruta, m, enviados_dir)
-            total["ficheros"] += 1
-            total["enviados"] += r["enviados"]
-            total["fallidos"] += r["fallidos"]
-            total["sin_dest"] += r["sin_dest"]
+        for ruta in pendientes:
+            for destinos, asunto, cuerpo in _iterar_envios(ruta):
+                m.receptores = destinos
+                try:
+                    m.enviar(asunto, cuerpo)
+                    total["enviados"] += 1
+                    envio_control(f"enviado a {destinos} — {asunto}", nivel="INFO")
+                except Exception as e:
+                    total["fallidos"] += 1
+                    envio_control(f"falló envío a {destinos}: {e}", nivel="ERROR")
+            # marcar como enviado = mover a enviados/ (se crea sola si hace falta)
+            os.makedirs(enviados_dir, exist_ok=True)
+            shutil.move(ruta, os.path.join(enviados_dir, os.path.basename(ruta)))
 
     envio_control(
-        f"pasada completa: {total['ficheros']} ficheros, "
-        f"{total['enviados']} enviados, {total['fallidos']} fallidos, "
-        f"{total['sin_dest']} sin dest",
+        f"pasada completa: {len(pendientes)} ficheros, "
+        f"{total['enviados']} enviados, {total['fallidos']} fallidos",
         nivel="INFO",
     )
     return total
 
 
 if __name__ == "__main__":
-    import sys
+    """Self-check sin red. Cubre: sin pendientes, envío normal, fallback a
+    EMAIL_GENERICO, sin destino, borrado de viejos, sin creds, y el fix del
+    RECEPTOR_CORREO (con SMTP real mockeado vía unittest.mock)."""
     import tempfile
-    import importlib
+    import unittest.mock as mock
 
-    # --- Self-check sin red: stub de EmailWriter que graba los envíos ---
     with tempfile.TemporaryDirectory() as tmp:
-        # salvamos y forzamos env vars del test
+        # entorno limpio y reproducible
         saved = {k: os.environ.get(k) for k in (
             "CARPETA_ERRORES", "ENVIADOS_DIR", "RETENCION_HORAS", "EMAIL_GENERICO",
             "EMISOR_CORREO", "PASS_CORREO", "RECEPTOR_CORREO", "PROYECTO",
             "RUTA_CONTROL", "LOG_NIVEL",
         )}
-        # log de control del propio daemon dentro del tmp para no ensuciar el repo
         os.environ["RUTA_CONTROL"] = os.path.join(tmp, "control.log")
-        os.environ["CARPETA_ERRORES"] = os.path.join(tmp, "pendientes") + os.sep
-        os.environ["ENVIADOS_DIR"] = os.path.join(tmp, "enviados")
+        os.environ["CARPETA_ERRORES"] = os.path.join(tmp, "p") + os.sep
+        os.environ["ENVIADOS_DIR"] = os.path.join(tmp, "e")
         os.environ["RETENCION_HORAS"] = "24"
         os.environ["EMISOR_CORREO"] = "self@check.test"
         os.environ["PASS_CORREO"] = "secret"
         os.environ["EMAIL_GENERICO"] = "generico@x.com"
         os.makedirs(os.environ["CARPETA_ERRORES"], exist_ok=True)
 
+        import utils.enviar_notificaciones as mod
+        from utils.error_system import nuevo_error
+        from utils.json_writer import JsonFileWriter as JW
+
         # stub EmailWriter: captura envíos sin abrir socket
-        class _StubEmailWriter:
-            def __init__(self):
-                self.receptores = []
-                self.envios = []  # (receptores, asunto, cuerpo) por enviar()
-                self.conectado = False
+        class _Stub:
+            def __init__(self): self.receptores = []; self.envios = []; self.on = False
             def __enter__(self): return self
-            def __exit__(self, *a):
-                self.conectado = False
-            def conectar(self):
-                if not os.getenv("EMISOR_CORREO") or not os.getenv("PASS_CORREO"):
-                    raise ValueError("faltan creds")
-                self.conectado = True
+            def __exit__(self, *a): self.on = False
+            def conectar(self): self.on = True
             def enviar(self, asunto=None, cuerpo=None, html=False):
-                if not self.conectado:
-                    raise RuntimeError("no conectado")
+                if not self.on: raise RuntimeError("no conectado")
                 self.envios.append((list(self.receptores), asunto, cuerpo))
 
-        # parche del símbolo en el módulo bajo test (vía sys.modules lookup)
-        import utils.enviar_notificaciones as mod
         original = mod.EmailWriter
-        mod.EmailWriter = _StubEmailWriter
+
+        def _run_with_stub(stub):
+            mod.EmailWriter = lambda: stub
+            try:
+                return mod.procesar()
+            finally:
+                mod.EmailWriter = original
+
         try:
-            # 1) sin pendientes — devuelve ceros sin conectar
-            assert mod.procesar()["ficheros"] == 0
-            assert not os.path.exists(os.environ["ENVIADOS_DIR"])  # no creada si no había nada que mover
+            # 1. sin pendientes — no conecta, devuelve ceros, no crea enviados/
+            assert mod.procesar() == {"borrados": 0, "enviados": 0, "fallidos": 0}
+            assert not os.path.exists(os.environ["ENVIADOS_DIR"])
 
-            # 2) un JSON con un error email y to_email explícito
-            from utils.error_system import nuevo_error
-            from utils.json_writer import JsonFileWriter as JW
-            err_to = nuevo_error("stop", "fallo crítico", notificar_email=True,
-                                 to_email="dest1@x.com,dest2@x.com")
-            err_no_email = nuevo_error("info", "solo log", notificar_log=True)
-            err_dest_from = nuevo_error("aviso", "fallo leve", notificar_email=True,
-                                        from_email="otro@x.com")  # sin to_email: cae a GENERICo
-            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_20260716_001.json")).write(
-                {"schema_version": "1.0", "timestamp_creacion": "t", "origen":"appA", "errores":[err_to, err_no_email, err_dest_from]}
-            )
+            # 2. envío normal: error con to_email explícito + error que cae a genérico
+            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_1.json")).write({
+                "schema_version": "1.0", "timestamp_creacion": "t", "origen": "appA",
+                "errores": [
+                    nuevo_error("stop", "fallo crítico", notificar_email=True,
+                               to_email="d1@x.com,d2@x.com"),
+                    nuevo_error("info", "solo log", notificar_log=True),
+                    nuevo_error("aviso", "fallo leve", notificar_email=True),  # → generico
+                ],
+            })
+            # JSON sin nada para email — se mueve sin enviar
+            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_2.json")).write({
+                "schema_version": "1.0", "timestamp_creacion": "t", "origen": "appB",
+                "errores": [nuevo_error("info", "solo log", notificar_log=True)],
+            })
+            stub = _Stub()
+            res = _run_with_stub(stub)
+            assert res == {"borrados": 0, "enviados": 2, "fallidos": 0}, res
+            assert len(stub.envios) == 2, stub.envios
+            assert stub.envios[0][0] == ["d1@x.com", "d2@x.com"], stub.envios[0]
+            assert stub.envios[0][1].startswith("[appA] STOP:"), stub.envios[0]
+            assert stub.envios[1][0] == ["generico@x.com"], stub.envios[1]  # no to_email → genérico
+            assert stub.envios[1][1].startswith("[appA] AVISO:"), stub.envios[1]
+            # todos movidos a enviados/
+            assert not glob.glob(os.path.join(os.environ["CARPETA_ERRORES"], "errores_*.json"))
+            assert len(os.listdir(os.environ["ENVIADOS_DIR"])) == 2
 
-            # otro JSON sin ningún error de email (se debe mover sin enviar)
-            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_20260716_002.json")).write(
-                {"schema_version":"1.0","timestamp_creacion":"t","origen":"appB","errores":[err_no_email]}
-            )
-
-            # capturamos los envíos via stub
-            stub_instance = _StubEmailWriter()
-            mod.EmailWriter = lambda: stub_instance
-            res = mod.procesar()
-            assert res["ficheros"] == 2, res
-            assert res["enviados"] == 2, res
-            assert res["fallidos"] == 0, res
-            assert res["sin_dest"] == 0, res
-
-            # verificar receptores usados por cada envío
-            assert len(stub_instance.envios) == 2, stub_instance.envios
-            dests1, asu1, _ = stub_instance.envios[0]
-            assert dests1 == ["dest1@x.com", "dest2@x.com"], dests1
-            assert asu1.startswith("[appA] STOP:"), asu1
-            dests2, asu2, _ = stub_instance.envios[1]
-            assert dests2 == ["generico@x.com"], dests2  # no to_email → EMAIL_GENERICO
-            assert asu2.startswith("[appA] AVISO:"), asu2
-
-            # todos los pendientes se movieron a enviados/
-            assert not glob.glob(os.path.join(os.environ["CARPETA_ERRORES"], "errores_*.json")), "quedaron pendientes"
-            enviados = os.listdir(os.environ["ENVIADOS_DIR"])
-            assert len(enviados) == 2, enviados
-
-            # 3) error sin destino (sin to_email y EMAIL_GENERICO quitada) → sin_dest cuenta
+            # 3. sin destino (sin to_email y EMAIL_GENERICO quitada) → no envía, pero mueve
             os.environ.pop("EMAIL_GENERICO", None)
-            err_sin_dest = nuevo_error("stop", "sin a quien avisar", notificar_email=True)
-            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_20260716_003.json")).write(
-                {"schema_version":"1.0","timestamp_creacion":"t","origen":"appC","errores":[err_sin_dest]}
-            )
-            stub2 = _StubEmailWriter()
-            mod.EmailWriter = lambda: stub2
-            res = mod.procesar()
+            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_3.json")).write({
+                "schema_version": "1.0", "timestamp_creacion": "t", "origen": "appC",
+                "errores": [nuevo_error("stop", "sin a quien avisar", notificar_email=True)],
+            })
+            stub2 = _Stub()
+            res = _run_with_stub(stub2)
             assert res["enviados"] == 0, res
-            assert res["sin_dest"] == 1, res
             assert len(stub2.envios) == 0, stub2.envios
-            # igual se mueve a enviados (no dejamos pendientes)
-            pendientes_restantes = glob.glob(os.path.join(os.environ["CARPETA_ERRORES"], "errores_*.json"))
-            assert not pendientes_restantes, pendientes_restantes
+            assert not glob.glob(os.path.join(os.environ["CARPETA_ERRORES"], "errores_*.json"))
+            os.environ["EMAIL_GENERICO"] = "generico@x.com"
 
-            # 4) limpieza de viejos: simulamos un fichero en enviados/ con mtime hace 48h
-            viejo = os.path.join(os.environ["ENVIADOS_DIR"], "errores_20260716_003.json")
+            # 4. borrado de viejos: mtime hace 48h → se borra; los recientes se quedan
+            viejo = os.path.join(os.environ["ENVIADOS_DIR"], "errores_3.json")
             old = time.time() - 48 * 3600
             os.utime(viejo, (old, old))
-            # ni RETENCION=24 → debe borrarse en la próxima pasada
-            mod.EmailWriter = _StubEmailWriter  # no se conectará, no hay pendientes
-            res = mod.procesar()
+            res = mod.procesar()  # sin pendientes, no conecta, solo borra viejos
             assert res["borrados"] == 1, res
-            assert not os.path.isfile(viejo), "el fichero viejo no se borró"
-            # los recientes (>24h) se quedan (como erro_001 y erro_002)
-            assert os.path.isfile(os.path.join(os.environ["ENVIADOS_DIR"], "errores_20260716_001.json"))
-            assert os.path.isfile(os.path.join(os.environ["ENVIADOS_DIR"], "errores_20260716_002.json"))
+            assert not os.path.isfile(viejo)
+            assert os.path.isfile(os.path.join(os.environ["ENVIADOS_DIR"], "errores_1.json"))
+            assert os.path.isfile(os.path.join(os.environ["ENVIADOS_DIR"], "errores_2.json"))
 
-            # 5) sin credenciales → se queja y no procesa
+            # 5. sin creds → se queja y NO mueve pendientes (esperan siguiente pasada)
             os.environ.pop("EMISOR_CORREO", None)
-            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_20260716_004.json")).write(
-                {"schema_version":"1.0","timestamp_creacion":"t","origen":"appD","errores":[err_to]}
-            )
+            JW(os.path.join(os.environ["CARPETA_ERRORES"], "errores_4.json")).write({
+                "schema_version": "1.0", "timestamp_creacion": "t", "origen": "appD",
+                "errores": [nuevo_error("stop", "nuevo fallo", notificar_email=True,
+                                       to_email="x@y.com")],
+            })
             res = mod.procesar()
             assert res["enviados"] == 0, res
-            # el pendiente NO se movió (no se procesó)
             assert glob.glob(os.path.join(os.environ["CARPETA_ERRORES"], "errores_*.json"))
+            os.environ["EMISOR_CORREO"] = "self@check.test"
+
+            # 6. FIX del bug: RECEPTOR_CORREO vacío + SMTP real mockeado → conectar()
+            #    NO lanza ValueError porque el setdefault lo rellena con placeholder.
+            #    Sin SMTP mockeado no podemos abrir socket real; sin setdefault el
+            #    EmailWriter.conectar() real lanza ValueError("Faltan env vars: ...").
+            os.environ.pop("RECEPTOR_CORREO", None)
+            assert not os.getenv("RECEPTOR_CORREO"), "precondición: vacío en env"
+
+            smtp_calls = {"login_args": None, "sendmail_calls": []}
+            class _MockSMTP:
+                def __init__(self, host, port): pass
+                def ehlo(self): pass
+                def starttls(self): pass
+                def login(self, user, pwd): smtp_calls["login_args"] = (user, pwd)
+                def sendmail(self, frm, to, msg): smtp_calls["sendmail_calls"].append((frm, to, msg))
+                def quit(self): pass
+
+            with mock.patch("utils.enviar_correo.smtplib.SMTP", _MockSMTP):
+                # usa el EmailWriter REAL (no stub). Sin setdefault, conectar()
+                # lanzaría ValueError("Faltan env vars: ... RECEPTOR_CORREO").
+                res = mod.procesar()
+            # RECEPTOR_CORREO quedó seteado por setdefault, los envíos usaron to_email real
+            assert res["enviados"] == 1, res
+            assert os.getenv("RECEPTOR_CORREO") == "noreply@localhost", \
+                f"setdefault no actuó: {os.getenv('RECEPTOR_CORREO')!r}"
+            assert smtp_calls["login_args"] == ("self@check.test", "secret")
+            assert len(smtp_calls["sendmail_calls"]) == 1
+            frm, to, msg = smtp_calls["sendmail_calls"][0]
+            assert frm == "self@check.test", frm
+            assert to == ["x@y.com"], to  # el real, no el placeholder
+            assert "Subject: [appD] STOP:" in msg
+            # el fichero se movió a enviados/
+            assert not glob.glob(os.path.join(os.environ["CARPETA_ERRORES"], "errores_*.json"))
 
         finally:
             mod.EmailWriter = original
-            from .error_system import _reset_logger
             _reset_logger()
             for k, v in saved.items():
                 if v is None:
@@ -349,4 +298,4 @@ if __name__ == "__main__":
                 else:
                     os.environ[k] = v
 
-    print("enviar_notificaciones v1.0.0 OK")
+    print("enviar_notificaciones v1.1.0 OK")
