@@ -65,9 +65,10 @@ SMTP_PORT=587
 ### `enviar_notificaciones`
 
 ```bash
-# Reutiliza SMTP: EMISOR_CORREO, PASS_CORREO, SMTP_HOST, SMTP_PORT de enviar_correo
-# Faltan creds → el daemon se queja y no procesa (verLogs en control.log).
-# EMAIL_GENERICO: To por defecto si un error no trae to_email · Obligatorio en prácticas
+# Reutiliza SMTP de enviar_correo: EMISOR_CORREO, PASS_CORREO, SMTP_HOST, SMTP_PORT.
+# RECEPTOR_CORREO no es obligatorio aquí (los To reales llegan por error o por
+# EMAIL_GENERICO); el daemon lo setea a un placeholder si lo dejaste vacío.
+# EMAIL_GENERICO: To por defecto si un error no trae to_email · recomendado
 EMAIL_GENERICO=alertas@midominio.com
 # Carpeta pendientes (mismo default que error_system). Lee los errores_*.json de aquí
 CARPETA_ERRORES=./notificaciones/
@@ -939,7 +940,7 @@ python utils/enviar_notificaciones.py
 from utils.enviar_notificaciones import procesar
 
 res = procesar()
-# res = {"borrados": int, "ficheros": int, "enviados": int, "fallidos": int, "sin_dest": int}
+# res = {"borrados": int, "enviados": int, "fallidos": int}
 ```
 
 ### Qué hace una pasada (`procesar()`)
@@ -1026,16 +1027,16 @@ python -m utils.enviar_notificaciones
 ### Errores comunes
 
 - **Olvidar `EMAIL_GENERICO`** → los errores sin `to_email` (la mayoría si no
-  los personalizas) se cuentan como `sin_dest` y no se envían. Setea la env var
-  con una dirección de ops/alertas genérica del proyecto.
+  los personalizas) se saltan con WARNING y no se envían. Setea la env var con
+  una dirección de ops/alertas genérica del proyecto.
 - **Confundir `RECEPTOR_CORREO` con `EMAIL_GENERICO`** → `RECEPTOR_CORREO` lo
-  usa `EmailWriter` directamente (un solo correo a todos). El daemon lo ignora:
-  usa por-error `to_email` y cae a `EMAIL_GENERICO`. Setea `EMAIL_GENERICO`
-  para el daemon, no `RECEPTOR_CORREO`.
+  usa `EmailWriter` directamente. El daemon NO lo necesita desde v1.1.0: si no
+  está seteado, lo rellena con un placeholder y usa los To reales (por error
+  `to_email` o `EMAIL_GENERICO`). Setea `EMAIL_GENERICO`, no `RECEPTOR_CORREO`.
 - **Esperar reintentos** → no hay. Un envío que falla se cuenta como `fallido`
-  y el JSON se mueve a `enviados/` igual. Si necesitas reintentos, bloquea el
-  move en `_procesar_fichero` o monta tu lógica aparte.
-- **Mover antes de confirmar el envío** → el daemon m pasa tras procesar el
+  y el JSON se mueve a `enviados/` igual. Si necesitas reintentos, monta tu
+  lógica aparte (el helper `_iterar_envios` es un punto de extensión natural).
+- **Mover antes de confirmar el envío** → el daemon mueve tras procesar el
   fichero completo (haya fallado o no todos sus errores). Si el proceso muere
   a mitad, el JSON se queda en pendientes y se reintentará entero en la siguiente
   pasada (idempotente: el destinatario puede recibir duplicados).

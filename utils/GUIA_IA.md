@@ -22,7 +22,7 @@ las use en un proyecto que ya las tenga copiadas en su propio `utils/`.
 | `error_system` | 2.2.1 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control (log stdlib con rotación temporal) |
 | `time_utils` | 1.0.0 | `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida` | Fechas `YYYYMMDD` (compacto) ↔ `date` y validación |
 | `enviar_correo` | 1.0.0 | `EmailWriter` | SMTP con STARTTLS, texto/HTML, context manager, config por env vars |
-| `enviar_notificaciones` | 1.0.0 | `procesar()` | One-shot: despacha JSONs de error_system por correo, los mueve a enviados/ y los borra tras 24h |
+| `enviar_notificaciones` | 1.1.0 | `procesar()` | One-shot: despacha JSONs de error_system por correo, los mueve a enviados/ y los borra tras 24h |
 | `check_updates` | 1.0.0 | (CLI) `python utils/check_updates.py <origen> <destino>` | Detectar actualizaciones entre repos |
 
 ## API mínima por utilidad
@@ -137,7 +137,7 @@ envio_control("fallo grave", nivel="ERROR")      # se escribe si LOG_NIVEL <= ER
 - Cambios no breaking. Backward compatible con JSONs legacy.
 - `registrar_errores(origen=None)` ahora cae a `os.getenv("PROYECTO", "desconocido")`. Antes era siempre literal `"desconocido"`. Pasar origen explícito sigue ganando.
 - `nuevo_error(...)` gana `from_email` y `to_email` opciones (CSV). Solo se añaden al dict del error si se pasan (`None` por defecto). `validar_error` no las exige.
-- `enviar_notificaciones` (v1.0.0) las consume si presentes: si un error trae `to_email`, ese es el destinatario; si no, cae a env var `EMAIL_GENERICO`.
+- `enviar_notificaciones` (v1.1.0) las consume si presentes: si un error trae `to_email`, ese es el destinatario; si no, cae a env var `EMAIL_GENERICO`.
 - Setea `PROYECTO` en tu `.env` con el nombre de tu proyecto (lo verás en el campo `origen` de cada JSON).
 
 ### `time_utils`

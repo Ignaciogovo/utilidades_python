@@ -20,7 +20,7 @@ Todos los `.py` viven en `utils/`:
 | `utils/error_system.py` | 2.2.1 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
 | `utils/time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
 | `utils/enviar_correo.py` | 1.0.0 | Envío de correo vía SMTP (Gmail por defecto) con soporte texto/HTML, lee de env vars | Cuando necesites enviar correo desde un script o un daemon |
-| `utils/enviar_notificaciones.py` | 1.0.0 | Daemon one-shot que despacha los JSON de `error_system` por correo y los archiva/borra | Cuando ya produzcas notificaciones JSON y quieras un orquestador que las envíe |
+| `utils/enviar_notificaciones.py` | 1.1.0 | Daemon one-shot que despacha los JSON de `error_system` por correo y los archiva/borra | Cuando ya produzcas notificaciones JSON y quieras un orquestador que las envíe |
 | `utils/check_updates.py` | 1.0.0 | Compara versiones entre este repo y un proyecto destino | Cuando tengas 2+ proyectos con copias de las utilidades |
 
 Todos los `.py` tienen un **self-check ejecutable**: `python -m utils.nombre_archivo` (sin args corre el self-check; con `<origen> <destino>` corre `check_updates`).
@@ -81,6 +81,13 @@ SemVer simple:
 `check_updates.py` usa comparación numérica de tuplas: `tuple(int(x) for x in v.split("."))`. No valida que sea SemVer estricto, solo que el formato sea `X.Y.Z`.
 
 ## Changelog
+
+### enviar_notificaciones 1.1.0 — simplificación + fix `RECEPTOR_CORREO`
+
+- `utils/enviar_notificaciones.py` **v1.1.0**:
+  - **Fix bug**: con credenciales reales en `.env` (`EMISOR_CORREO`+`PASS_CORREO`) pero **sin `RECEPTOR_CORREO`** — cosa natural, los destinatarios llegan por error — el daemon revienta porque `EmailWriter.conectar()` exige `RECEPTOR_CORREO` no vacío. El self-check con stub no lo detectaba (falso positivo). Ahora: `os.environ.setdefault("RECEPTOR_CORREO", "noreply@localhost")` antes de `EmailWriter()` — los `To` reales se sobrescriben por llamada.
+  - **Nuevo test en self-check**: `unittest.mock.patch("smtplib.SMTP")` con SMTP real mockeado y `RECEPTOR_CORREO=""` en env. Sin el setdefault, este test fallaría; con él, pasa. Codifica el bug para que no regrese.
+  - **Reescritura por simplicidad** (352 → 247 líneas): 4 helpers privados inlineados a 2 nombrados (`borrar_viejos`, `_iterar_envios`), type hints decorativos fuera, 3 returns en `_procesar_fichero` → 1 generador, 4 niveles de log → 2, dict de resumen de 5 campos → 3 (`borrados`, `enviados`, `fallidos`). Sin cambios de API pública (`procesar()` sigue devolviendo un dict).
 
 ### 2.2.1 — `_nombre_fichero_errores` con microsegundos
 
