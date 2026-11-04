@@ -1102,6 +1102,11 @@ Donde:
 - `directorio_utils_origen` = ruta al `utils/` de este repo (donde están los `.py` con `__version__`)
 - `directorio_utils_destino` = ruta al `utils/` de tu proyecto (o donde hayas copiado los archivos)
 
+> **Extensiones**: para las carpetas de `extensiones/` existe `extensiones/check_updates.py`,
+> con los mismos estados y exit codes. Compara una extensión concreta (pasa sus dos carpetas)
+> o `extensiones/` entera, leyendo el `# __version__` del `Dockerfile` de cada extensión.
+> Detalle en [`extensiones/GUIA_IA.md`](extensiones/GUIA_IA.md).
+
 ### Ejemplo: chequear un proyecto
 
 ```bash

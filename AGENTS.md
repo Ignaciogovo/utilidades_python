@@ -17,7 +17,10 @@ archivo a archivo** en otros proyectos personales (no es un paquete instalable).
   actualizada** cuando cambie el comportamiento o la API pública.
 - `README.md` → overview + quickstart + schema + changelog.
 - `extensiones/` → contenedores Docker que complementan las utilidades;
-  catálogo en `extensiones/README.md`.
+  catálogo en `extensiones/README.md`; referencia rápida para IAs en
+  `extensiones/GUIA_IA.md` (mantener actualizada como la de `utils/`).
+  Cada extensión versiona su `Dockerfile` (`# extensiones-python:nombre` +
+  `# __version__`); `extensiones/check_updates.py` compara copias.
 - `extensiones/enviar_notificaciones/` → contenedor one-shot para despachar notificaciones.
 - `extensiones/log_viewer/` → visor web de logs.
 

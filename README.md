@@ -6,7 +6,7 @@ Librería raíz de utilidades Python reutilizables, pensada para copiarse archiv
 > - Estás en el **README** (overview, quickstart, schema, convención de versionado, changelog).
 > - Para tutorial detallado por utilidad (instalación, API completa, ejemplos reales, errores comunes), mira **[TUTORIAL.md](TUTORIAL.md)** — es la fuente de detalle.
 >
-> La guía de referencia rápida de la API para IAs vive en **[utils/GUIA_IA.md](utils/GUIA_IA.md)**.
+> La guía de referencia rápida de la API para IAs vive en **[utils/GUIA_IA.md](utils/GUIA_IA.md)**; la de las extensiones, en **[extensiones/GUIA_IA.md](extensiones/GUIA_IA.md)**.
 
 ## Qué hay aquí
 
@@ -85,6 +85,12 @@ SemVer simple:
 `check_updates.py` usa comparación numérica de tuplas: `tuple(int(x) for x in v.split("."))`. No valida que sea SemVer estricto, solo que el formato sea `X.Y.Z`.
 
 ## Changelog
+
+### extensiones 1.0.0 — guía para IAs + check_updates de extensiones
+
+- Las dos extensiones versionan su `Dockerfile` con la cabecera `# extensiones-python:nombre` + `# __version__ = "1.0.0"`; bump en cualquier cambio que entre en la imagen (ficheros propios o `utils/` que copie el build).
+- `extensiones/check_updates.py` v1.0.0 (nuevo): compara versiones de extensiones entre este repo y una copia destino — una extensión concreta (sus dos carpetas) o `extensiones/` entera. Mismos estados y exit codes que `utils/check_updates.py`; sin args corre self-check.
+- `extensiones/GUIA_IA.md` (nuevo): referencia rápida para IAs — convenciones, catálogo, despliegue mínimo por extensión, relación con `utils/` y diccionario de env vars.
 
 ### error_system 2.4.0 — rotaciones en histórico
 
