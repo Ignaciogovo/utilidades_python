@@ -1,3 +1,5 @@
+# extensiones-python:log_viewer
+# __version__ = "1.0.0"
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
