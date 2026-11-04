@@ -34,12 +34,14 @@ CARPETA_ERRORES=./notificaciones/
 PROYECTO=mi_proyecto
 # Prefijo para nombres de fichero log y JSON (opcional, sin prefijo por defecto)
 # LOG_PREFIJO=mi_app
-# Fichero de log activo; los rotated (TimedRotatingFileHandler) viven junto a este
+# Fichero activo; las rotaciones van a LOG_HISTORICO_DIR o a ./logs/historico/
 RUTA_CONTROL=./logs/control.log
+# Carpeta de rotaciones (opcional; default: historico junto a RUTA_CONTROL)
+# LOG_HISTORICO_DIR=./logs/historico
 # Nivel mínimo: DEBUG | INFO | WARNING | ERROR | CRITICAL
 LOG_NIVEL=INFO
-# Días entre rotaciones · Nº de backups retenidos (retención ≈ días × backups)
-LOG_ROTACION_DIAS=15
+# Días entre rotaciones · Nº de archivos históricos retenidos
+LOG_ROTACION_DIAS=90
 LOG_BACKUPS=4
 # Formato de línea (sintaxis logging.Formatter)
 LOG_FMT=%(asctime)s | %(levelname)s | %(message)s
@@ -457,19 +459,20 @@ PROYECTO=mi_proyecto
 # Con prefijo: mi_app_control.log, mi_app_errores_...json
 # LOG_PREFIJO=mi_app
 
-# Log de control (envio_control) — stdlib logging + TimedRotatingFileHandler
+# Log activo y carpeta de rotaciones (por defecto ./logs/historico/)
 RUTA_CONTROL=/var/log/mi_proyecto/logs/control.log
+LOG_HISTORICO_DIR=/var/log/mi_proyecto/logs/historico
 LOG_NIVEL=INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
-LOG_ROTACION_DIAS=15          # rota el log cada 15 días
-LOG_BACKUPS=4                 # conserva 4 ficheros (~60 días ≈ 2 meses)
+LOG_ROTACION_DIAS=90          # rota el log cada 90 días (default)
+LOG_BACKUPS=4                 # conserva 4 rotaciones (~360 días)
 LOG_FMT=%(asctime)s | %(levelname)s | %(message)s
 LOG_CONSOLE=0                 # 1 → también emite a stderr
 ```
 
-> **Defaults sin .env (2.1.0+):** si no seteas nada, los JSON caen en
-> `./notificaciones/` y el log de control (activo + backups rotated) en
-> `./logs/control.log`. Las carpetas se crean solas. Setea las env vars solo
-> si quieres otra ubicación. Si seteas `LOG_PREFIJO`, los nombres incluyen
+> **Defaults sin .env (2.4.0+):** si no seteas nada, los JSON caen en
+> `./notificaciones/` y el log activo en `./logs/control.log`; las rotaciones
+> fechadas van a `./logs/historico/`. Las carpetas se crean solas. Setea las env vars solo
+> si quieres otra ubicación o intervalo. Si seteas `LOG_PREFIJO`, los nombres incluyen
 > el prefijo (p.ej. `./logs/mi_app_control.log`, `mi_app_errores_...json`).
 
 ### API mínima
@@ -549,15 +552,15 @@ ruta = registrar_errores(
 )
 # ruta → "/var/log/.../notificaciones/errores_20260710_120000_123456.json" o None si no había nada
 
-# trazas de control (log de ejecución, stdlib logging + rotación temporal)
-# config centralizada por env vars (RUTA_CONTROL, LOG_NIVEL, ...). Una línea por traza.
+# trazas de control (log activo estable + rotaciones fechadas en histórico)
+# config centralizada por env vars (RUTA_CONTROL, LOG_HISTORICO_DIR, LOG_NIVEL, ...).
 envio_control("inicio")                       # nivel INFO (default)
 envio_control("detalle", nivel="DEBUG")        # se descarta si LOG_NIVEL=INFO
 envio_control("fallo", nivel="ERROR")         # se escribe si LOG_NIVEL <= ERROR
 envio_control("fin")
 # formato de línea (default LOG_FMT):
 #   2026-07-16 09:30:00,123 | INFO | inicio
-# rotación automática cada LOG_ROTACION_DIAS (default 15), reteniendo LOG_BACKUPS (default 4) ≈ 2 meses
+# rotación automática cada LOG_ROTACION_DIAS (default 90), reteniendo LOG_BACKUPS (default 4)
 ```
 
 ### Ejemplo real: scraper con notificación
@@ -647,8 +650,16 @@ if "stop" in fdatos_keys_errores(errores, "tipo"):
 - **No usar `contexto`** → el campo `contexto` está ahí para que el daemon no tenga que adivinar. Si tu error es "fallo en jornada 12", pon `contexto={"jornada": 12}`.
 - **Llamar `registrar_errores` con la lista vacía** → devuelve `None` sin escribir nada. Útil para no generar ficheros inútiles, pero no confundas con error.
 - **Parser antiguo de `control.txt`** (migración 2.0.0) → las líneas ahora llevan timestamp y nivel (`2026-07-16 09:30:00,123 | INFO | msg`). Adapta los parsers que leían el texto plano. La llamada `envio_control("texto")` sigue funcionando sin cambios.
-- **Cambiar `LOG_NIVEL` en caliente** → `envio_control` reaplica el nivel en cada llamada, pero los handlers se crean una sola vez (ruta, formato y rotación se fijan en la primera traza). Para cambiar esos, reinicia el proceso.
-- **`LOG_BACKUPS` insuficiente para retención larga** → 15 días × 4 ≈ 2 meses. Sube `LOG_BACKUPS` o `LOG_ROTACION_DIAS` si necesitas más histórico.
+- **Cambiar `LOG_NIVEL` en caliente** → `envio_control` reaplica el nivel en cada llamada, pero los handlers se crean una sola vez (ruta, histórico, formato y rotación se fijan en la primera traza). Para cambiar esos, reinicia el proceso.
+- **`LOG_BACKUPS` insuficiente para retención larga** → con los defaults, 90 días × 4 ≈ 360 días. Sube o baja `LOG_BACKUPS`/`LOG_ROTACION_DIAS` según la retención que necesites.
+- **Rotaciones antiguas en la carpeta activa (migración a 2.4.0)** → detén el productor y, desde el directorio de `RUTA_CONTROL`, archiva los ficheros existentes:
+
+  ```bash
+  mkdir -p historico
+  for f in *.log.????-??-??; do [ -e "$f" ] && mv -n -- "$f" historico/; done
+  ```
+
+  Si configuraste `LOG_HISTORICO_DIR`, usa esa carpeta en lugar de `historico/`. El visor solo muestra el log activo de la carpeta raíz.
 
 ---
 
@@ -881,22 +892,14 @@ with EmailWriter() as m:
     )
 ```
 
-### Ejemplo real: docker entrypoint (migración del antiguo `envio_correo_docker`)
+### Ejemplo real: docker entrypoint (migración)
 
-El antiguo `envio_correo_docker/Dockerfile` ahora apunta a `../utils/enviar_correo.py` y se construye con `docker build` desde la raíz del repo. El entrypoint sigue siendo el mismo:
+Antes el Dockerfile vivía en `envio_correo_docker/` y ejecutaba `enviar_correo.py`
+directamente. Ahora está en `extensiones/enviar_notificaciones/` y ejecuta
+`enviar_notificaciones.py` (el orquestador). `enviar_correo.py` se usa como librería,
+no como entrypoint de contenedor.
 
-```bash
-docker build -t correo-docker /workspace/utilidades_python/
-docker run --rm \
-  -e EMISOR_CORREO=tu_correo@gmail.com \
-  -e PASS_CORREO=tu_app_password \
-  -e RECEPTOR_CORREO=dest@x.com \
-  -e ASUNTO="UPS ALERTA" \
-  -e TEXTO="UPS ha cambiado de estado" \
-  correo-docker
-```
-
-Igual que antes, pero ahora `enviar_correo.py` también se puede importar como utilidad Python normal desde otro proyecto.
+Ver la sección [enviar_notificaciones.py > Docker](#docker) para instrucciones actualizadas.
 
 ### Errores comunes
 
@@ -974,6 +977,26 @@ res = procesar()
        el resto (un fallo de SMTP no aborta el lote).
    - Mueve el fichero procesado a `ENVIADOS_DIR` con `shutil.move`.
 6. **Resume** con `envio_control`: `ficheros X, enviados Y, fallidos Z, sin_dest W`.
+
+### Docker
+
+El directorio `extensiones/enviar_notificaciones/` contiene un Dockerfile listo
+para usar. Contexto de build = raíz del repo. Solo necesitas un `.env`:
+
+```bash
+# Build
+cd /ruta/al/repo/utilidades_python
+docker build -f extensiones/enviar_notificaciones/Dockerfile -t enviar-notificaciones .
+
+# Run (one-shot, con .env + volumen persistente)
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/notificaciones:/app/notificaciones \
+  enviar-notificaciones
+```
+
+Se ejecuta una sola pasada. Para repetir cada N minutos, pon el `docker run`
+dentro de un cron del host o un systemd timer.
 
 ### Ejemplo real: cron cada 5 minutos
 

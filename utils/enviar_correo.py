@@ -28,8 +28,6 @@
 import os
 import smtplib
 from email.message import EmailMessage
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 
 # ponytail: solo SMTP con STARTTLS (puerto 587). Añadir SSL/465 si hace falta.
@@ -61,12 +59,8 @@ class EmailWriter:
         self.server.login(self.remitente, self.password)
 
     def _construir_mensaje(self, asunto: str, cuerpo: str, html: bool):
-        if html:
-            mensaje = MIMEMultipart()
-            mensaje.attach(MIMEText(cuerpo, "html"))
-        else:
-            mensaje = EmailMessage()
-            mensaje.set_content(cuerpo)
+        mensaje = EmailMessage()
+        mensaje.set_content(cuerpo, subtype="html" if html else "plain")
         mensaje["From"] = self.remitente
         mensaje["To"] = ", ".join(self.receptores)
         mensaje["Subject"] = asunto
@@ -88,63 +82,61 @@ class EmailWriter:
 
 if __name__ == "__main__":
     import os
-    import tempfile
 
-    with tempfile.TemporaryDirectory() as tmp:
-        old_env = {k: os.environ.get(k) for k in (
-            "EMISOR_CORREO", "PASS_CORREO", "RECEPTOR_CORREO", "ASUNTO", "TEXTO",
-            "SMTP_HOST", "SMTP_PORT",
-        )}
+    old_env = {k: os.environ.get(k) for k in (
+        "EMISOR_CORREO", "PASS_CORREO", "RECEPTOR_CORREO", "ASUNTO", "TEXTO",
+        "SMTP_HOST", "SMTP_PORT",
+    )}
+    try:
+        os.environ["EMISOR_CORREO"] = "test@origen.com"
+        os.environ["PASS_CORREO"] = "secret123"
+        os.environ["RECEPTOR_CORREO"] = "a@x.com, b@x.com ,c@x.com"
+        os.environ["ASUNTO"] = "asunto de prueba"
+        os.environ["TEXTO"] = "cuerpo por defecto"
+
+        w = EmailWriter()
+        assert w.remitente == "test@origen.com"
+        assert w.receptores == ["a@x.com", "b@x.com", "c@x.com"], w.receptores
+        assert w.asunto == "asunto de prueba"
+        assert w.texto == "cuerpo por defecto"
+        assert w.smtp_host == "smtp.gmail.com"
+        assert w.smtp_port == 587
+        assert w.server is None
+
+        m_txt = w._construir_mensaje("s1", "c1", html=False)
+        assert isinstance(m_txt, EmailMessage)
+        assert m_txt["From"] == "test@origen.com"
+        assert m_txt["To"] == "a@x.com, b@x.com, c@x.com"
+        assert m_txt["Subject"] == "s1"
+        assert "c1" in m_txt.as_string()
+
+        m_html = w._construir_mensaje("s2", "<b>x</b>", html=True)
+        assert isinstance(m_html, EmailMessage)
+        assert m_html["Subject"] == "s2"
+        assert "<b>x</b>" in m_html.as_string()
+
         try:
-            os.environ["EMISOR_CORREO"] = "test@origen.com"
-            os.environ["PASS_CORREO"] = "secret123"
-            os.environ["RECEPTOR_CORREO"] = "a@x.com, b@x.com ,c@x.com"
-            os.environ["ASUNTO"] = "asunto de prueba"
-            os.environ["TEXTO"] = "cuerpo por defecto"
+            w.enviar()
+            assert False, "debería haber fallado sin conectar()"
+        except RuntimeError:
+            pass
 
-            w = EmailWriter()
-            assert w.remitente == "test@origen.com"
-            assert w.receptores == ["a@x.com", "b@x.com", "c@x.com"], w.receptores
-            assert w.asunto == "asunto de prueba"
-            assert w.texto == "cuerpo por defecto"
-            assert w.smtp_host == "smtp.gmail.com"
-            assert w.smtp_port == 587
-            assert w.server is None
+        del os.environ["EMISOR_CORREO"]
+        w2 = EmailWriter()
+        try:
+            w2.conectar()
+            assert False, "debería haber fallado sin EMISOR_CORREO"
+        except ValueError:
+            pass
 
-            m_txt = w._construir_mensaje("s1", "c1", html=False)
-            assert isinstance(m_txt, EmailMessage)
-            assert m_txt["From"] == "test@origen.com"
-            assert m_txt["To"] == "a@x.com, b@x.com, c@x.com"
-            assert m_txt["Subject"] == "s1"
-            assert "c1" in m_txt.as_string()
-
-            m_html = w._construir_mensaje("s2", "<b>x</b>", html=True)
-            assert isinstance(m_html, MIMEMultipart)
-            assert m_html["Subject"] == "s2"
-            assert "<b>x</b>" in m_html.as_string()
-
-            try:
-                w.enviar()
-                assert False, "debería haber fallado sin conectar()"
-            except RuntimeError:
-                pass
-
-            del os.environ["EMISOR_CORREO"]
-            w2 = EmailWriter()
-            try:
-                w2.conectar()
-                assert False, "debería haber fallado sin EMISOR_CORREO"
-            except ValueError:
-                pass
-
-            os.environ["SMTP_PORT"] = "465"
-            w3 = EmailWriter()
-            assert w3.smtp_port == 465
-        finally:
-            for k, v in old_env.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
+        os.environ["SMTP_PORT"] = "465"
+        w3 = EmailWriter()
+        assert w3.smtp_port == 465
+    finally:
+        for k, v in old_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
     print("enviar_correo v1.0.0 OK")

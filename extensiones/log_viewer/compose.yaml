@@ -1,0 +1,18 @@
+services:
+  log-viewer:
+    build: .
+    env_file: .env
+    environment:
+      LOGS_DIR: /logs
+    volumes:
+      - ${LOGS_PATH:?Define LOGS_PATH en .env}:/logs:ro
+    ports:
+      - "${LOG_VIEWER_BIND:-127.0.0.1}:${LOG_VIEWER_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped

@@ -48,9 +48,7 @@ class CSVWriter:
         if not self._file_exists():
             return True
         with open(self.filename, 'r', newline='') as file:
-            for _ in csv.reader(file):
-                return False
-        return True
+            return next(csv.reader(file), None) is None
 
     def clear_file(self) -> None:
         if self.filename:

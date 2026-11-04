@@ -19,7 +19,7 @@ las use en un proyecto que ya las tenga copiadas en su propio `utils/`.
 | `csv_writer` | 1.0.0 | `CSVWriter`, `exportar_csv` | Leer/escribir CSV con cabecera y modo (`sobrescribir`/`anexar`) |
 | `text_writer` | 1.0.1 | `TextFileWriter` | Texto plano con append limpio (sin `\n` espurio en archivo nuevo) |
 | `json_writer` | 1.0.0 | `JsonFileWriter` | JSON con creación de carpetas padre y `append` dict/list |
-| `error_system` | 2.3.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control (log stdlib con rotación temporal) |
+| `error_system` | 2.4.0 | `nuevo_error`, `registrar_errores`, `envio_control` | Errores unificados (schema v1.1) y trazas de control con rotación a histórico |
 | `time_utils` | 1.0.0 | `convert_str_en_fecha`, `convert_fecha_en_str`, `es_fecha_valida` | Fechas `YYYYMMDD` (compacto) ↔ `date` y validación |
 | `enviar_correo` | 1.0.0 | `EmailWriter` | SMTP con STARTTLS, texto/HTML, context manager, config por env vars |
 | `enviar_notificaciones` | 1.1.0 | `procesar()` | One-shot: despacha JSONs de error_system por correo, los mueve a enviados/ y los borra tras 24h |
@@ -106,15 +106,15 @@ ruta = registrar_errores(
     carpeta=None,          # None → env CARPETA_ERRORES o "./notificaciones/"
 )                          # → "/.../errores_20260710_120000_123456.json" o None
 
-# trazas (log de control, stdlib logging + TimedRotatingFileHandler)
-# config centralizada por env vars: RUTA_CONTROL, LOG_NIVEL, LOG_ROTACION_DIAS,
-# LOG_BACKUPS, LOG_FMT, LOG_CONSOLE. Una línea por traza (no toques logger/handlers).
+# trazas (un log activo estable; rotaciones fechadas en historico/)
+# config por env vars: RUTA_CONTROL, LOG_HISTORICO_DIR, LOG_NIVEL,
+# LOG_ROTACION_DIAS, LOG_BACKUPS, LOG_FMT, LOG_CONSOLE.
 envio_control("inicio del proceso")              # nivel INFO (default)
 envio_control("detalle interno", nivel="DEBUG")  # se descarta si LOG_NIVEL=INFO
 envio_control("fallo grave", nivel="ERROR")      # se escribe si LOG_NIVEL <= ERROR
 
 # Formato de línea (default LOG_FMT): "2026-07-16 09:30:00,123 | INFO | msg"
-# Rotación temporal cada LOG_ROTACION_DIAS (default 15) con LOG_BACKUPS (default 4) ≈ 2 meses
+# Rotación cada LOG_ROTACION_DIAS (default 90); LOG_BACKUPS conserva 4 archivos históricos
 ```
 
 #### Migración 1.0.0 → 2.0.0 (`envio_control`)
@@ -146,6 +146,12 @@ envio_control("fallo grave", nivel="ERROR")      # se escribe si LOG_NIVEL <= ER
 - Si seteas `LOG_PREFIJO=mi_app`, los ficheros log pasan a `mi_app_control.log` (antes `control.log`) y los JSON de errores a `mi_app_errores_YYYYMMDD_HHMMSS_ffffff.json` (antes `errores_...json`).
 - `RUTA_CONTROL` ahora interpola `LOG_PREFIJO` por defecto. Si la tenías seteada explícitamente, tu valor sigue ganando.
 - `enviar_notificaciones` (v1.1.0+) usa glob `*errores_*.json` → detecta JSONs con o sin prefijo.
+
+#### Migración 2.3.0 → 2.4.0 (rotaciones en histórico)
+
+- El log activo conserva su nombre (`control.log` o `<LOG_PREFIJO>_control.log`); las rotaciones fechadas pasan a `historico/` junto a `RUTA_CONTROL`.
+- `LOG_HISTORICO_DIR` permite cambiar la carpeta. `LOG_ROTACION_DIAS` controla el intervalo (default 90) y `LOG_BACKUPS` el número de rotaciones retenidas (default 4).
+- Los archivos rotados que ya existían no se mueven automáticamente. Detén el productor y muévelos manualmente a la carpeta histórica; el procedimiento está en la sección de migración de `TUTORIAL.md`.
 
 ### `time_utils`
 
@@ -197,13 +203,12 @@ from utils.enviar_notificaciones import procesar
 # Una pasada: borra viejos de ENVIADOS_DIR (> RETENCION_HORAS), lee
 # CARPETA_ERRORES/*errores_*.json, envía los notificacion.email=True y los
 # mueve a ENVIADOS_DIR. Sin pendientes → sale sin abrir SMTP.
-res = procesar()  # {"borrados": int, "ficheros": int, "enviados": int,
-                  #  "fallidos": int, "sin_dest": int}
+res = procesar()  # {"borrados": int, "enviados": int, "fallidos": int}
 ```
 
 Trazas via `envio_control` (hereda `RUTA_CONTROL`, `LOG_NIVEL`, ...). Self-check sin red (stub de `EmailWriter`). Pensado para cron/systemd (one-shot, sin bucle).
 
-### `check_updates` (CLI, no importable)
+### `check_updates` (diseñado como CLI, también importable)
 
 ```bash
 python utils/check_updates.py <directorio_utils_origen> <directorio_utils_destino>
@@ -218,10 +223,11 @@ Salida: tabla con estados `OK` / `DESACTUALIZADO` / `FALTA_EN_DESTINO` / `MAS_NU
 | `LOG_PREFIJO` | `error_system` | — | Si se setea, se antepone al nombre de ficheros log y JSON: `mi_app_control.log`, `mi_app_errores_...json`. Sin prefijo: `control.log`, `errores_...json` |
 | `CARPETA_ERRORES` | `error_system`, `enviar_notificaciones` | `./notificaciones/` | Carpeta de JSON pendientes. El daemon la lee |
 | `PROYECTO` | `error_system` | `desconocido` | Default de `origen` en `registrar_errores` si no se pasa explícito |
-| `RUTA_CONTROL` | `error_system` (log) | `./logs/{LOG_PREFIJO}_control.log` (o `./logs/control.log` sin prefijo) | Fichero de log de control (TimedRotatingFileHandler). Los ficheros rotated viven en el mismo dir |
+| `RUTA_CONTROL` | `error_system` (log) | `./logs/{LOG_PREFIJO}_control.log` (o `./logs/control.log` sin prefijo) | Único fichero activo por proyecto |
+| `LOG_HISTORICO_DIR` | `error_system` (log) | `<carpeta RUTA_CONTROL>/historico` | Destino de las rotaciones fechadas |
 | `LOG_NIVEL` | `error_system` (log) | `INFO` | `DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL` — filtra lo que se emite |
-| `LOG_ROTACION_DIAS` | `error_system` (log) | `15` | Días entre rotaciones |
-| `LOG_BACKUPS` | `error_system` (log) | `4` | Nº de ficheros rotated conservados (15×4 ≈ 2 meses) |
+| `LOG_ROTACION_DIAS` | `error_system` (log) | `90` | Días entre rotaciones |
+| `LOG_BACKUPS` | `error_system` (log) | `4` | Nº de rotaciones conservadas (90×4 ≈ 360 días) |
 | `LOG_FMT` | `error_system` (log) | `%(asctime)s \| %(levelname)s \| %(message)s` | Formato de línea (logging.Formatter) |
 | `LOG_CONSOLE` | `error_system` (log) | `0` | `1` → emitir también a stderr |
 | `ENVIADOS_DIR` | `enviar_notificaciones` | `<CARPETA_ERRORES>/enviados` | Subcarpeta destino tras procesar un JSON |
