@@ -12,7 +12,6 @@
 #   writer.clear_file()              # vacía el fichero
 
 import os
-from typing import Optional
 
 
 class TextFileWriter:
@@ -20,9 +19,7 @@ class TextFileWriter:
         self.filename = filename
 
     def _file_exists(self) -> bool:
-        if self.filename is None:
-            return False
-        return os.path.isfile(self.filename)
+        return bool(self.filename) and os.path.isfile(self.filename)
 
     def write_data(self, data: str, mode: str = 'w') -> None:
         if self.filename is None:

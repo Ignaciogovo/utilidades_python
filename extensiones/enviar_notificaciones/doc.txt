@@ -22,7 +22,7 @@
 1. Build
 ----------------------------------------------------------------------
    cd /ruta/al/repo/utilidades_python
-   docker build -f envio_notificaciones_docker/Dockerfile -t enviar-notificaciones .
+   docker build -f extensiones/enviar_notificaciones/Dockerfile -t enviar-notificaciones .
 
 2. Run (one-shot, con .env + volumen persistente)
 ----------------------------------------------------------------------

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Acceso · Control de logs{% endblock %}
+{% block content %}
+<section class="login-wrap">
+  <div class="login-card">
+    <div class="eyebrow">ÁREA PRIVADA</div>
+    <h1>Inicia sesión</h1>
+    <p class="muted">Acceso de administración al visor de logs.</p>
+    {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+    <form method="post" class="login-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label for="username">Usuario</label>
+      <input id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">Contraseña</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Entrar <span aria-hidden="true">→</span></button>
+    </form>
+  </div>
+</section>
+{% endblock %}

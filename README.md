@@ -10,14 +10,18 @@ Librería raíz de utilidades Python reutilizables, pensada para copiarse archiv
 
 ## Qué hay aquí
 
-Todos los `.py` viven en `utils/`:
+`utils/` contiene las utilidades Python reutilizables. Los contenedores que las
+complementan viven en [`extensiones/`](extensiones/README.md), con sus propias
+instrucciones y dependencias.
+
+Los módulos de utilidad viven en `utils/`:
 
 | Archivo | Versión | Para qué sirve | Cuándo copiarlo |
 |---|---|---|---|
 | `utils/csv_writer.py` | 1.0.0 | Leer/escribir CSV con control de cabeceras y modos (`w`/`a`) | Siempre que escribas CSVs a fichero |
 | `utils/text_writer.py` | 1.0.1 | Leer/escribir ficheros de texto plano con append limpio (sin `\n` espurio en archivo nuevo) | Cuando necesites logs o `.txt` simples |
 | `utils/json_writer.py` | 1.0.0 | Leer/escribir JSON creando carpetas padre y con append dict/list | Cuando persistas estado o config en JSON |
-| `utils/error_system.py` | 2.3.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas de control (vía stdlib `logging` con rotación temporal), consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
+| `utils/error_system.py` | 2.4.0 | Sistema unificado de errores y logs: validación, fabricación, registro a JSON, trazas con rotación a histórico, consulta por clave | Cuando quieras registrar errores y/o dejar trazas de control |
 | `utils/time_utils.py` | 1.0.0 | Conversión entre `date` y strings `YYYYMMDD` (compacto) / `YYYY-MM-DD` (extendido) y validación | Cuando manejes fechas en formato compacto |
 | `utils/enviar_correo.py` | 1.0.0 | Envío de correo vía SMTP (Gmail por defecto) con soporte texto/HTML, lee de env vars | Cuando necesites enviar correo desde un script o un daemon |
 | `utils/enviar_notificaciones.py` | 1.1.0 | Daemon one-shot que despacha los JSON de `error_system` por correo y los archiva/borra | Cuando ya produzcas notificaciones JSON y quieras un orquestador que las envíe |
@@ -81,6 +85,12 @@ SemVer simple:
 `check_updates.py` usa comparación numérica de tuplas: `tuple(int(x) for x in v.split("."))`. No valida que sea SemVer estricto, solo que el formato sea `X.Y.Z`.
 
 ## Changelog
+
+### error_system 2.4.0 — rotaciones en histórico
+
+- Mantiene un único log activo por proyecto y mueve las rotaciones fechadas a `historico/` (o `LOG_HISTORICO_DIR`).
+- `LOG_ROTACION_DIAS` controla el intervalo y su nuevo default es 90; `LOG_BACKUPS` limita las rotaciones archivadas (4 por defecto).
+- El visor solo lee el archivo activo; el histórico queda fuera de la carpeta vigilada.
 
 ### error_system 2.3.0 — `LOG_PREFIJO`
 

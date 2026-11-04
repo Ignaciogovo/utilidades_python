@@ -19,13 +19,10 @@ class JsonFileWriter:
     def __init__(self, filepath: str):
         self.filepath = filepath
 
-    def _ensure_dir(self) -> None:
+    def write(self, data: Any) -> None:
         parent = os.path.dirname(self.filepath)
         if parent:
             os.makedirs(parent, exist_ok=True)
-
-    def write(self, data: Any) -> None:
-        self._ensure_dir()
         with open(self.filepath, mode='w') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.write('\n')

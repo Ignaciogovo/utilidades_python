@@ -11,6 +11,7 @@
 .env
 .env.*
 !.env.example
+.venv/
 
 # Node / build habituales
 node_modules/

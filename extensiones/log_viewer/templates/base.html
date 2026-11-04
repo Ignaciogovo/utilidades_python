@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Control de logs{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='classic.css' if theme == 'classic' else 'retro.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') if session.get('authenticated') else url_for('login') }}">
+      <span class="brand-mark">L</span><span>Control<span class="brand-muted"> de logs</span></span>
+    </a>
+    {% if session.get('authenticated') %}
+    <a class="theme-switch logout" href="{{ url_for('index', theme='classic' if theme == 'retro' else 'retro') }}">Tema {{ 'clásico' if theme == 'retro' else 'oscuro' }}</a>
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="logout" type="submit">Cerrar sesión</button>
+    </form>
+    {% endif %}
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

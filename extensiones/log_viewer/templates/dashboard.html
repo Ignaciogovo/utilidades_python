@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Logs · Control de logs{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <div class="eyebrow">MONITORIZACIÓN</div>
+    <h1>Logs de tus proyectos</h1>
+    <p class="muted">Archivo activo · todas las fechas</p>
+  </div>
+  <a class="refresh" href="{{ refresh_url }}" aria-label="Actualizar logs">↻ <span>Actualizar</span></a>
+</section>
+
+<form class="filters" method="get" action="{{ url_for('index') }}">
+  <label>Proyecto
+    <select name="project">
+      <option value="">Todos los proyectos</option>
+      {% for project in data.projects %}<option value="{{ project }}" {% if filters.project == project %}selected{% endif %}>{{ project }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Nivel
+    <select name="level">
+      <option value="">Todos</option>
+      {% for item in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "RAW"] %}<option value="{{ item }}" {% if filters.level == item %}selected{% endif %}>{{ item }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Desde<input type="date" name="from" value="{{ filters['from'] }}"></label>
+  <label>Hasta<input type="date" name="to" value="{{ filters['to'] }}"></label>
+  <label class="search-field">Buscar<input type="search" name="q" value="{{ filters.q }}" placeholder="Texto del mensaje"></label>
+  <button class="primary filter-button" type="submit">Filtrar</button>
+</form>
+
+<section class="summary-row">
+  <div><span class="summary-label">Coincidencias</span><strong>{{ data.total }}</strong></div>
+  <div><span class="summary-label">Proyecto</span><strong class="summary-project">{{ filters.project or "Todos" }}</strong></div>
+  <div><span class="summary-label">Página</span><strong>{{ data.page }} / {{ data.pages }}</strong></div>
+</section>
+
+<section class="log-panel" aria-label="Entradas de log">
+  {% if data.entries %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Fecha</th><th>Proyecto</th><th>Nivel</th><th>Mensaje</th></tr></thead>
+    <tbody>
+    {% for entry in data.entries %}
+      <tr>
+        <td class="timestamp">{{ entry.display_time }}</td>
+        <td class="project-cell">{{ entry.project }}</td>
+        <td><span class="level level-{{ entry.level|lower }}">{{ entry.level }}</span></td>
+        <td class="message">{{ entry.message }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <div class="empty-state"><span class="empty-icon">⌕</span><h2>No hay entradas</h2><p>Prueba otros filtros o comprueba el directorio de logs montado.</p></div>
+  {% endif %}
+</section>
+
+{% if data.pages > 1 %}
+<nav class="pagination" aria-label="Paginación">
+  {% if prev_url %}<a href="{{ prev_url }}">← Anterior</a>{% else %}<span></span>{% endif %}
+  <span>Página {{ data.page }} de {{ data.pages }}</span>
+  {% if next_url %}<a href="{{ next_url }}">Siguiente →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

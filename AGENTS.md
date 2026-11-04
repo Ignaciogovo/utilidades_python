@@ -15,10 +15,14 @@ archivo a archivo** en otros proyectos personales (no es un paquete instalable).
 - `TUTORIAL.md` → guía de implementación para el usuario (instalación, API
   completa, ejemplos reales, errores comunes). **Debe estar siempre
   actualizada** cuando cambie el comportamiento o la API pública.
-- `README.md` → overview + 8 pasos para empezar + schema + changelog.
-- `envio_notificaciones_docker/` → Dockerfile + doc.txt para `enviar_notificaciones`.
+- `README.md` → overview + quickstart + schema + changelog.
+- `extensiones/` → contenedores Docker que complementan las utilidades;
+  catálogo en `extensiones/README.md`.
+- `extensiones/enviar_notificaciones/` → contenedor one-shot para despachar notificaciones.
+- `extensiones/log_viewer/` → visor web de logs.
 
-Convenciones al tocar un `.py` de `utils/` (no romperlas):
+Convenciones al tocar un `.py` de `utils/` (no romperlas; las extensiones son
+aplicaciones independientes):
 - Cabecera estándar: `# utilidades-python:nombre` + `# __version__ = "X.Y.Z"`.
   `check_updates` lee esta cabecera → al cambiar comportamiento, bump de versión.
 - Solo stdlib, sin dependencias externas (mantener portable).
@@ -28,9 +32,10 @@ Convenciones al tocar un `.py` de `utils/` (no romperlas):
 - No quitar la cabecera ni el `# __version__`.
 
 Env vars que usan las utilidades: `CARPETA_ERRORES`
-(`error_system`); `RUTA_CONTROL`, `LOG_NIVEL`, `LOG_ROTACION_DIAS`,
-`LOG_BACKUPS`, `LOG_FMT`, `LOG_CONSOLE` (`error_system` — log de control,
-vía stdlib `logging` + `TimedRotatingFileHandler`); `EMISOR_CORREO`,
+(`error_system`); `RUTA_CONTROL`, `LOG_HISTORICO_DIR`, `LOG_NIVEL`,
+`LOG_ROTACION_DIAS`, `LOG_BACKUPS`, `LOG_FMT`, `LOG_CONSOLE`
+(`error_system` — log de control, vía stdlib `logging` + `TimedRotatingFileHandler`);
+`EMISOR_CORREO`,
 `PASS_CORREO`, `RECEPTOR_CORREO`, `ASUNTO`, `TEXTO`, `SMTP_HOST`,
 `SMTP_PORT` (`enviar_correo`).
 ---

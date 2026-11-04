@@ -39,10 +39,7 @@ def convert_fecha_en_str(fecha: date) -> str:
     Returns:
         String de 8 chars, p.ej. "20260710"
     """
-    year = fecha.year
-    month = str(fecha.month) if fecha.month >= 10 else "0" + str(fecha.month)
-    day = str(fecha.day) if fecha.day >= 10 else "0" + str(fecha.day)
-    return str(year) + str(month) + str(day)
+    return fecha.strftime("%Y%m%d")
 
 
 def es_fecha_valida(fecha) -> bool:

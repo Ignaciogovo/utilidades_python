@@ -1,6 +1,6 @@
 # utilidades-python:error_system
 # Descripción: Sistema unificado de gestión de errores y logs (validación + registro + consulta + trazas de control)
-# __version__ = "2.3.0"
+# __version__ = "2.4.0"
 #
 # Este módulo NO envía correos ni escribe en BBDD. Solo produce ficheros JSON
 # con la lista de errores filtrados según el sistema de notificaciones activo.
@@ -19,11 +19,11 @@
 # Configuración de LOG (trazas de control, vía envio_control, respaldado por stdlib logging):
 #   RUTA_CONTROL         → ruta del fichero de log. Default: "./logs/<LOG_PREFIJO>_control.log"
 #                          (o "./logs/control.log" si LOG_PREFIJO no se setea).
-#                          Los ficheros rotated por TimedRotatingFileHandler viven en la
-#                          misma carpeta (./logs/).
+#                          El log activo queda aquí; las rotaciones van a ./logs/historico/.
+#   LOG_HISTORICO_DIR    → carpeta de rotaciones. Default: <carpeta de RUTA_CONTROL>/historico.
 #   LOG_NIVEL            → DEBUG|INFO|WARNING|ERROR|CRITICAL. Filtra lo que se emite. Default: "INFO"
-#   LOG_ROTACION_DIAS    → días entre rotaciones (TimedRotatingFileHandler when='D'). Default: "15"
-#   LOG_BACKUPS          → nº de ficheros rotated a conservar. 4 × 15 días ≈ 60 días ≈ 2 meses. Default: "4"
+#   LOG_ROTACION_DIAS    → días entre rotaciones (TimedRotatingFileHandler when='D'). Default: "90"
+#   LOG_BACKUPS          → nº de ficheros históricos a conservar. Default: "4"
 #   LOG_FMT              → formato de línea (sintaxis de logging.Formatter). Default: "%(asctime)s | %(levelname)s | %(message)s"
 #   LOG_CONSOLE          → "1" para emitir también a stderr, "0" para solo fichero. Default: "0"
 #
@@ -53,6 +53,7 @@
 import glob
 import logging
 import os
+import shutil
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from typing import Optional
@@ -77,6 +78,32 @@ _LOGGER: Optional[logging.Logger] = None
 
 def _resolve_nivel() -> int:
     return _LOG_NIVELES.get(os.getenv("LOG_NIVEL", "INFO").upper(), logging.INFO)
+
+
+class _HistoricalTimedRotatingFileHandler(TimedRotatingFileHandler):
+    def __init__(self, filename, history_dir, **kwargs):
+        self.history_dir = os.path.abspath(history_dir)
+        os.makedirs(self.history_dir, exist_ok=True)
+        super().__init__(filename, **kwargs)
+
+    def rotation_filename(self, default_name):
+        return os.path.join(self.history_dir, os.path.basename(default_name))
+
+    def getFilesToDelete(self):
+        if self.backupCount <= 0:
+            return []
+        prefix = os.path.basename(self.baseFilename) + "."
+        try:
+            names = os.listdir(self.history_dir)
+        except OSError:
+            return []
+        files = [
+            os.path.join(self.history_dir, name)
+            for name in names
+            if name.startswith(prefix) and self.extMatch.fullmatch(name[len(prefix):])
+        ]
+        files.sort()
+        return files[:-self.backupCount] if len(files) > self.backupCount else []
 
 
 def _reset_logger() -> None:
@@ -112,17 +139,21 @@ def _get_logger() -> logging.Logger:
     fmt = os.getenv("LOG_FMT", "%(asctime)s | %(levelname)s | %(message)s")
     formatter = logging.Formatter(fmt)
 
-    dias = int(os.getenv("LOG_ROTACION_DIAS", "15"))
+    dias = int(os.getenv("LOG_ROTACION_DIAS", "90"))
     backups = int(os.getenv("LOG_BACKUPS", "4"))
+    if dias < 1 or backups < 0:
+        raise ValueError("LOG_ROTACION_DIAS debe ser >= 1 y LOG_BACKUPS >= 0")
+    history_dir = os.getenv("LOG_HISTORICO_DIR") or os.path.join(parent or ".", "historico")
 
     logger = logging.getLogger("envio_control")
     logger.setLevel(_resolve_nivel())
     logger.propagate = False
 
     if not logger.handlers:
-        handler = TimedRotatingFileHandler(
-            ruta, when="D", interval=dias, backupCount=backups, encoding="utf-8"
+        handler = _HistoricalTimedRotatingFileHandler(
+            ruta, history_dir, when="D", interval=dias, backupCount=backups, encoding="utf-8"
         )
+        handler.rotator = shutil.move
         handler.setFormatter(formatter)
         logger.addHandler(handler)
         if os.getenv("LOG_CONSOLE", "0") == "1":
@@ -284,6 +315,7 @@ def registrar_errores(
 
 if __name__ == "__main__":
     import tempfile
+    import time
 
     # --- Tests de errores (registrar_errores, validar_error, nuevo_error) ---
     with tempfile.TemporaryDirectory() as tmp:
@@ -357,19 +389,26 @@ if __name__ == "__main__":
     # --- Tests de log (envio_control: timestamp, niveles, rotación, idempotencia) ---
     saved_env = {k: os.environ.get(k) for k in (
         "RUTA_CONTROL", "LOG_NIVEL", "LOG_ROTACION_DIAS", "LOG_BACKUPS",
-        "LOG_FMT", "LOG_CONSOLE", "LOG_PREFIJO",
+        "LOG_FMT", "LOG_CONSOLE", "LOG_PREFIJO", "LOG_HISTORICO_DIR",
     )}
     saved_cwd = os.getcwd()
     try:
         with tempfile.TemporaryDirectory() as tmp:
             log_path = os.path.join(tmp, "control.log")
             os.environ["RUTA_CONTROL"] = log_path
+            os.environ.pop("LOG_HISTORICO_DIR", None)
+            os.environ.pop("LOG_ROTACION_DIAS", None)
+            os.environ.pop("LOG_BACKUPS", None)
 
             # 1) escritura por defecto (INFO) con timestamp y nivel en la línea
             _reset_logger()
             envio_control("inicio")
             envio_control("procesando")
             log = _get_logger()
+            default_handler = next(h for h in log.handlers if isinstance(h, TimedRotatingFileHandler))
+            assert default_handler.interval == 90 * 86400
+            assert default_handler.backupCount == 4
+            assert default_handler.history_dir == os.path.join(tmp, "historico")
             for h in log.handlers:
                 h.flush()
             with open(log_path, "r", encoding="utf-8") as f:
@@ -403,23 +442,43 @@ if __name__ == "__main__":
             _get_logger()
             assert len(_get_logger().handlers) == n_handlers_antes, "se duplicaron handlers"
 
-            # 4) rotación temporal: doRollover genera un backup y reabre el activo
+            # 4) las rotaciones van a historico y LOG_BACKUPS limita cuántas se guardan
             os.environ["LOG_NIVEL"] = "INFO"
+            os.environ["LOG_ROTACION_DIAS"] = "1"
+            os.environ["LOG_BACKUPS"] = "2"
+            os.environ.pop("LOG_HISTORICO_DIR", None)
             _reset_logger()
-            envio_control("pre-rotacion")
             log = _get_logger()
-            for h in log.handlers:
-                h.flush()
             file_handler = next(h for h in log.handlers if isinstance(h, TimedRotatingFileHandler))
-            file_handler.doRollover()
-            backups = glob.glob(os.path.join(tmp, "control.log.*"))
-            assert backups, f"no se generó backup de rotación: {os.listdir(tmp)}"
+            for i in range(4):
+                envio_control(f"pre-rotacion-{i}")
+                for h in log.handlers:
+                    h.flush()
+                file_handler.rolloverAt = int(time.time()) + file_handler.interval * (i + 1)
+                file_handler.doRollover()
+            history_dir = os.path.join(tmp, "historico")
+            backups = glob.glob(os.path.join(history_dir, "control.log.*"))
+            assert len(backups) == 2, f"retención incorrecta: {os.listdir(history_dir)}"
+            assert not glob.glob(os.path.join(tmp, "control.log.*")), "las rotaciones deben salir de la carpeta activa"
             assert os.path.isfile(log_path), "el fichero activo debe reabrirse tras rotar"
 
+            # 5) LOG_HISTORICO_DIR permite elegir otra carpeta
+            custom_history = os.path.join(tmp, "archivo")
+            os.environ["LOG_HISTORICO_DIR"] = custom_history
+            _reset_logger()
+            envio_control("rotacion en carpeta personalizada")
+            log = _get_logger()
+            file_handler = next(h for h in log.handlers if isinstance(h, TimedRotatingFileHandler))
+            file_handler.rolloverAt = int(time.time()) + file_handler.interval
+            file_handler.doRollover()
+            assert glob.glob(os.path.join(custom_history, "control.log.*")), os.listdir(custom_history)
+
             _reset_logger()
 
-            # 5) LOG_PREFIJO: nombre del log y de los JSON interpolan el prefijo
+            # 6) LOG_PREFIJO: nombre del log y de los JSON interpolan el prefijo
             _reset_logger()
+            os.chdir(tmp)
+            os.environ.pop("LOG_HISTORICO_DIR", None)
             os.environ.pop("RUTA_CONTROL", None)
             os.environ["LOG_PREFIJO"] = "test_app"
             envio_control("traza con prefijo")
@@ -443,4 +502,4 @@ if __name__ == "__main__":
             else:
                 os.environ[k] = v
 
-    print("error_system v2.3.0 OK")
+    print("error_system v2.4.0 OK")
