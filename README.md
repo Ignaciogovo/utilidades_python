@@ -92,6 +92,16 @@ SemVer simple:
 - `extensiones/check_updates.py` v1.0.0 (nuevo): compara versiones de extensiones entre este repo y una copia destino — una extensión concreta (sus dos carpetas) o `extensiones/` entera. Mismos estados y exit codes que `utils/check_updates.py`; sin args corre self-check.
 - `extensiones/GUIA_IA.md` (nuevo): referencia rápida para IAs — convenciones, catálogo, despliegue mínimo por extensión, relación con `utils/` y diccionario de env vars.
 
+### extensiones 1.0.1 — actualización de paquetes de imagen
+
+- Ambas imágenes actualizan los paquetes Debian durante el build y eliminan `pip` del runtime, que no se necesita para ejecutar las extensiones.
+- Versiones de los Dockerfiles y catálogos actualizadas a `1.0.1`.
+
+### check_vulnerabilidades 1.0.1 — escáner de imágenes Docker
+
+- Nueva extensión one-shot basada en Trivy: analiza imágenes locales, reutiliza `error_system` y genera JSON para `enviar_notificaciones`.
+- Por defecto analiza solo imágenes usadas por contenedores activos y conserva estado para no repetir avisos sin cambios.
+
 ### error_system 2.4.0 — rotaciones en histórico
 
 - Mantiene un único log activo por proyecto y mueve las rotaciones fechadas a `historico/` (o `LOG_HISTORICO_DIR`).

@@ -4,8 +4,9 @@
 
 | Extensión | Versión | Qué hace | Documentación |
 |---|---|---|---|
-| `enviar_notificaciones/` | 1.0.0 | Despacha por correo los JSON generados por `utils/enviar_notificaciones.py`. | [doc.txt](enviar_notificaciones/doc.txt) |
-| `log_viewer/` | 1.0.0 | Visor web de solo lectura para los logs de control. | [README.md](log_viewer/README.md) |
+| `enviar_notificaciones/` | 1.0.1 | Despacha por correo los JSON generados por `utils/enviar_notificaciones.py`. | [doc.txt](enviar_notificaciones/doc.txt) |
+| `log_viewer/` | 1.0.1 | Visor web de solo lectura para los logs de control. | [README.md](log_viewer/README.md) |
+| `check_vulnerabilidades/` | 1.0.1 | Escanea imágenes Docker locales con Trivy y genera notificaciones compatibles con `error_system`. | [README.md](check_vulnerabilidades/README.md) |
 
 Las extensiones pueden tener dependencias propias; no se instalan en `utils/`.
 

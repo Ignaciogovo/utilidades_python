@@ -28,8 +28,9 @@ autocontenido que complementa a las utilidades.
 
 | Extensión | Versión | Qué hace | Tipo |
 |---|---|---|---|
-| `enviar_notificaciones` | 1.0.0 | Contenedor one-shot que despacha por correo los JSON pendientes de `error_system` (envuelve `utils/enviar_notificaciones.py`) | one-shot (cron) |
-| `log_viewer` | 1.0.0 | Visor web de solo lectura para los logs de control de `error_system` | servicio web |
+| `enviar_notificaciones` | 1.0.1 | Contenedor one-shot que despacha por correo los JSON pendientes de `error_system` (envuelve `utils/enviar_notificaciones.py`) | one-shot (cron) |
+| `log_viewer` | 1.0.1 | Visor web de solo lectura para los logs de control de `error_system` | servicio web |
+| `check_vulnerabilidades` | 1.0.1 | Escáner one-shot de vulnerabilidades de imágenes Docker locales; genera JSON para `enviar_notificaciones` | one-shot (cron) |
 
 ## Despliegue mínimo por extensión
 
@@ -87,11 +88,31 @@ subcarpetas, no `historico/`); un proyecto = un `control.log` o
 paginación; nunca modifica logs. Login con usuario/contraseña; `COOKIE_SECURE=false`
 solo para HTTP local de pruebas.
 
+### `check_vulnerabilidades`
+
+Necesita `utils/` junto a la carpeta al construir, consulta las imágenes locales
+mediante `/var/run/docker.sock` y reutiliza `error_system` para crear los JSON
+que procesa `enviar_notificaciones`.
+
+```bash
+cd /ruta/al/repo/extensiones/check_vulnerabilidades
+cp -n .env.example .env
+docker compose build --pull
+docker compose run --rm check-vulnerabilidades
+```
+
+Con `IMAGENES=TODAS` analiza una vez cada `ImageID` local con etiqueta. También
+admite una lista separada por comas o patrones simples. El socket Docker concede
+acceso equivalente a administrador del host: úsalo solo en un servidor de
+confianza y no lo expongas por TCP.
+
 ## Relación con `utils/`
 
 - `enviar_notificaciones` copia `utils/` dentro de la imagen en el build: si
   copias esta extensión a otro sitio, necesitas también `utils/` al lado para
   construir (y esa copia se chequea con `utils/check_updates.py`).
+- `check_vulnerabilidades` también copia `utils/` dentro de la imagen para
+  reutilizar `error_system`; necesita el contexto del proyecto al construir.
 - `log_viewer` es autocontenida, pero **lee el formato de log de
   `error_system` 2.4.0**: un fichero activo por proyecto, rotaciones fechadas
   en `historico/` fuera del escaneo. Un `LOG_PREFIJO` único por productor se
@@ -133,6 +154,20 @@ argumentos corre el self-check.
 | `ADMIN_PASSWORD` | `log_viewer` | — | Mínimo 12 caracteres (obligatorio) |
 | `SECRET_KEY` | `log_viewer` | — | Mínimo 32 caracteres; genera con `secrets.token_urlsafe(48)` |
 | `COOKIE_SECURE` | `log_viewer` | `true` | `false` solo para pruebas por HTTP local |
+| `IMAGENES` | `check_vulnerabilidades` | `TODAS` | Imágenes locales, lista separada por comas o patrones |
+| `CARPETA_ERRORES` | `check_vulnerabilidades` | `/app/notificaciones` | Ruta interna de los JSON de notificación |
+| `RUTA_CONTROL` | `check_vulnerabilidades` | `/app/logs/control.log` | Log interno del escáner |
+| `LOG_HISTORICO_DIR` | `check_vulnerabilidades` | junto a `RUTA_CONTROL` | Carpeta de rotaciones del log |
+| `LOG_PREFIJO` | `check_vulnerabilidades` | — | Prefijo del log y de los JSON |
+| `RUTA_NOTIFICACIONES_HOST` | `check_vulnerabilidades` | — | Ruta del host montada como `CARPETA_ERRORES` |
+| `RUTA_LOGS_HOST` | `check_vulnerabilidades` | — | Ruta del host montada como carpeta de logs |
+| `RUTA_ESTADO_HOST` | `check_vulnerabilidades` | — | Carpeta del host para recordar avisos enviados |
+| `ESTADO_FILE` | `check_vulnerabilidades` | `/app/estado/estado.json` | Estado interno anti-repetición |
+| `SEVERIDADES` | `check_vulnerabilidades` | `HIGH,CRITICAL` | Severidades que pasa a Trivy |
+| `IGNORAR_SIN_CORREGIR` | `check_vulnerabilidades` | `1` | Excluye vulnerabilidades sin parche conocido |
+| `INCLUIR_DANGLING` | `check_vulnerabilidades` | `0` | Incluye imágenes sin etiqueta (`<none>`) |
+| `SOLO_EN_USO` | `check_vulnerabilidades` | `1` | Solo imágenes usadas por contenedores |
+| `INCLUIR_DETENIDOS` | `check_vulnerabilidades` | `0` | Incluye contenedores detenidos al buscar imágenes |
 
 ## Reglas de oro
 

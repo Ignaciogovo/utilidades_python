@@ -1,0 +1,22 @@
+services:
+  check-vulnerabilidades:
+    build:
+      context: ../..
+      dockerfile: extensiones/check_vulnerabilidades/Dockerfile
+    env_file: .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${RUTA_NOTIFICACIONES_HOST:?Define RUTA_NOTIFICACIONES_HOST en .env}:/app/notificaciones
+      - ${RUTA_LOGS_HOST:?Define RUTA_LOGS_HOST en .env}:/app/logs
+      - ${RUTA_ESTADO_HOST:?Define RUTA_ESTADO_HOST en .env}:/app/estado
+      - trivy-cache:/root/.cache/trivy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  trivy-cache:
