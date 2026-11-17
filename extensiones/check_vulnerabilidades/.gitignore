@@ -1,0 +1,4 @@
+# Runtime data: never version scan output, notifications or state.
+logs/
+notificaciones/
+estado/

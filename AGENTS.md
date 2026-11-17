@@ -23,6 +23,7 @@ archivo a archivo** en otros proyectos personales (no es un paquete instalable).
   `# __version__`); `extensiones/check_updates.py` compara copias.
 - `extensiones/enviar_notificaciones/` → contenedor one-shot para despachar notificaciones.
 - `extensiones/log_viewer/` → visor web de logs.
+- `extensiones/check_vulnerabilidades/` → escáner one-shot de vulnerabilidades de imágenes Docker.
 
 Convenciones al tocar un `.py` de `utils/` (no romperlas; las extensiones son
 aplicaciones independientes):
